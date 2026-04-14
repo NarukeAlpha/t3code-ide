@@ -30,6 +30,12 @@ interface CachedDetectedScripts {
   readonly result: ListDetectedProjectScriptsResult;
 }
 
+function stringifySignatureValue(value: unknown): string {
+  return JSON.stringify(value, (_key, currentValue) =>
+    typeof currentValue === "bigint" ? `bigint:${currentValue.toString()}` : currentValue,
+  );
+}
+
 function normalizePackageManager(value: string | undefined): ProjectPackageManager | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
@@ -103,7 +109,7 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
       const signatureParts = [`package.json:${manifestPath}`];
       const manifestStat = yield* safeStat(manifestPath);
       if (manifestStat) {
-        signatureParts.push(`package.json.stat:${JSON.stringify(manifestStat)}`);
+        signatureParts.push(`package.json.stat:${stringifySignatureValue(manifestStat)}`);
       }
       let detectedPackageManager: ProjectPackageManager | null = null;
 
@@ -113,7 +119,7 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
         if (!stats || stats.type !== "File") {
           continue;
         }
-        signatureParts.push(`${candidate.fileName}:${JSON.stringify(stats)}`);
+        signatureParts.push(`${candidate.fileName}:${stringifySignatureValue(stats)}`);
         detectedPackageManager ??= candidate.packageManager;
       }
 

@@ -1,6 +1,5 @@
 import type {
   EnvironmentId,
-  GitGraphNode,
   GitGraphRef,
   GitRecentGraphResult,
   GitHubCheckSummary,
@@ -20,7 +19,7 @@ import {
   ShieldAlertIcon,
   ShieldCheckIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   gitAddPullRequestCommentMutationOptions,
@@ -28,7 +27,6 @@ import {
   gitRecentGraphQueryOptions,
   gitSubmitPullRequestReviewMutationOptions,
 } from "~/lib/gitReactQuery";
-import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
 import {
@@ -49,6 +47,7 @@ import {
 import { Textarea } from "~/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
 import { toastManager } from "~/components/ui/toast";
+import { buildGraphRows } from "./GitRepositoryWorkspaceDialog.logic";
 
 type RepositoryWorkspaceTab = "graph" | "pull_request" | "checks";
 
@@ -59,58 +58,26 @@ interface GitRepositoryWorkspaceDialogProps {
   cwd: string | null;
 }
 
-const GRAPH_ROW_HEIGHT = 24;
-const GRAPH_NODE_Y = GRAPH_ROW_HEIGHT / 2;
+const GRAPH_FALLBACK_ROW_HEIGHT = 44;
 const GRAPH_LANE_WIDTH = 14;
 const GRAPH_LANE_OFFSET = 12;
-
-type GraphRow = {
-  readonly node: GitGraphNode;
-  readonly lanesBefore: ReadonlyArray<string>;
-  readonly lanesAfter: ReadonlyArray<string>;
-  readonly nodeLane: number;
-  readonly hadExistingLane: boolean;
-};
+const GRAPH_LANE_COLORS = [
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316",
+] as const;
 
 function laneX(lane: number) {
   return GRAPH_LANE_OFFSET + lane * GRAPH_LANE_WIDTH;
 }
 
-function buildGraphRows(nodes: ReadonlyArray<GitGraphNode>) {
-  let lanes: string[] = [];
-  let maxLaneCount = 1;
-  const rows: GraphRow[] = [];
-
-  for (const node of nodes) {
-    const existingLane = lanes.indexOf(node.oid);
-    const lanesBefore = existingLane === -1 ? [node.oid, ...lanes] : [...lanes];
-    const nodeLane = lanesBefore.indexOf(node.oid);
-    const lanesAfter = lanesBefore.filter((oid) => oid !== node.oid);
-
-    node.parentOids.forEach((parentOid, index) => {
-      const existingParentIndex = lanesAfter.indexOf(parentOid);
-      if (existingParentIndex !== -1) {
-        lanesAfter.splice(existingParentIndex, 1);
-      }
-      const insertAt = Math.min(nodeLane + index, lanesAfter.length);
-      lanesAfter.splice(insertAt, 0, parentOid);
-    });
-
-    maxLaneCount = Math.max(maxLaneCount, lanesBefore.length, lanesAfter.length, nodeLane + 1);
-    rows.push({
-      node,
-      lanesBefore,
-      lanesAfter,
-      nodeLane,
-      hadExistingLane: existingLane !== -1,
-    });
-    lanes = lanesAfter;
-  }
-
-  return {
-    rows,
-    maxLaneCount,
-  };
+function graphLaneColor(lane: number) {
+  return GRAPH_LANE_COLORS[lane % GRAPH_LANE_COLORS.length] ?? GRAPH_LANE_COLORS[0];
 }
 
 function graphRefSortKey(type: GitGraphRef["type"]) {
@@ -200,6 +167,68 @@ function GitGraph({ graph }: { graph: GitRecentGraphResult }) {
   }, [graph.refs]);
   const { rows, maxLaneCount } = useMemo(() => buildGraphRows(graph.nodes), [graph.nodes]);
   const graphWidth = Math.max(72, GRAPH_LANE_OFFSET * 2 + (maxLaneCount - 1) * GRAPH_LANE_WIDTH);
+  const rowsContainerRef = useRef<HTMLDivElement | null>(null);
+  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [rowMetrics, setRowMetrics] = useState<{
+    readonly tops: ReadonlyArray<number>;
+    readonly heights: ReadonlyArray<number>;
+    readonly totalHeight: number;
+  }>({
+    tops: [],
+    heights: [],
+    totalHeight: 0,
+  });
+
+  useLayoutEffect(() => {
+    if (rows.length === 0) {
+      setRowMetrics({ tops: [], heights: [], totalHeight: 0 });
+      return;
+    }
+
+    const measure = () => {
+      const tops = rows.map((_, index) => rowRefs.current[index]?.offsetTop ?? 0);
+      const heights = rows.map(
+        (_, index) => rowRefs.current[index]?.offsetHeight ?? GRAPH_FALLBACK_ROW_HEIGHT,
+      );
+      const lastIndex = rows.length - 1;
+      const totalHeight =
+        lastIndex >= 0
+          ? (tops[lastIndex] ?? 0) + (heights[lastIndex] ?? GRAPH_FALLBACK_ROW_HEIGHT)
+          : 0;
+
+      setRowMetrics((previous) => {
+        const sameTops =
+          previous.tops.length === tops.length &&
+          previous.tops.every((value, index) => value === tops[index]);
+        const sameHeights =
+          previous.heights.length === heights.length &&
+          previous.heights.every((value, index) => value === heights[index]);
+        if (sameTops && sameHeights && previous.totalHeight === totalHeight) {
+          return previous;
+        }
+        return { tops, heights, totalHeight };
+      });
+    };
+
+    measure();
+    const frameId = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    const rowsContainerElement = rowsContainerRef.current;
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" || rowsContainerElement === null
+        ? null
+        : new ResizeObserver(() => {
+            measure();
+          });
+    if (resizeObserver && rowsContainerElement) {
+      resizeObserver.observe(rowsContainerElement);
+    }
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", measure);
+      resizeObserver?.disconnect();
+    };
+  }, [rows]);
 
   if (rows.length === 0) {
     return (
@@ -236,110 +265,143 @@ function GitGraph({ graph }: { graph: GitRecentGraphResult }) {
         {graph.truncated ? <span>Showing the most recent slice only.</span> : null}
       </div>
       <div className="overflow-x-auto rounded-lg border bg-muted/24">
-        <div className="min-w-[46rem] divide-y">
-          {rows.map((row) => {
-            const refs = refsByOid.get(row.node.oid) ?? [];
-            return (
-              <div
-                key={row.node.oid}
-                className="grid grid-cols-[7rem_minmax(0,1fr)] items-stretch gap-3 px-3 py-1.5"
-              >
-                <div className="flex items-center">
-                  <svg
-                    aria-hidden="true"
-                    className="overflow-visible"
-                    height={GRAPH_ROW_HEIGHT}
-                    width={graphWidth}
-                  >
-                    {row.lanesBefore.map((oid, laneIndex) => {
-                      if (oid === row.node.oid) {
-                        return null;
-                      }
-                      const nextLane = row.lanesAfter.indexOf(oid);
-                      if (nextLane === -1) {
-                        return null;
-                      }
-                      return (
-                        <line
-                          key={`${row.node.oid}-${oid}`}
-                          x1={laneX(laneIndex)}
-                          x2={laneX(nextLane)}
-                          y1={0}
-                          y2={GRAPH_ROW_HEIGHT}
-                          className="stroke-border"
-                          strokeWidth={1.5}
-                        />
-                      );
-                    })}
-                    {row.hadExistingLane ? (
+        <div className="relative min-w-[46rem] px-3">
+          <svg
+            aria-hidden="true"
+            className="pointer-events-none absolute left-0 top-0 overflow-visible"
+            height={rowMetrics.totalHeight || rows.length * GRAPH_FALLBACK_ROW_HEIGHT}
+            width={graphWidth}
+            style={{ shapeRendering: "geometricPrecision" }}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            {rows.map((row, rowIndex) => {
+              const rowTop = rowMetrics.tops[rowIndex] ?? rowIndex * GRAPH_FALLBACK_ROW_HEIGHT;
+              const rowHeight = rowMetrics.heights[rowIndex] ?? GRAPH_FALLBACK_ROW_HEIGHT;
+              const rowBottom = rowTop + rowHeight;
+              const nodeY = rowTop + rowHeight / 2;
+
+              return (
+                <g key={row.node.oid}>
+                  {row.lanesBefore.map((oid, laneIndex) => {
+                    if (oid === row.node.oid) {
+                      return null;
+                    }
+                    const nextLane = row.lanesAfter.indexOf(oid);
+                    if (nextLane === -1) {
+                      return null;
+                    }
+                    return (
                       <line
-                        x1={laneX(row.nodeLane)}
-                        x2={laneX(row.nodeLane)}
-                        y1={0}
-                        y2={GRAPH_NODE_Y}
-                        className="stroke-border"
+                        key={`${row.node.oid}-${oid}`}
+                        x1={laneX(laneIndex)}
+                        x2={laneX(nextLane)}
+                        y1={rowTop}
+                        y2={rowBottom}
+                        style={{ stroke: graphLaneColor(nextLane) }}
+                        strokeOpacity={0.82}
                         strokeWidth={1.5}
                       />
-                    ) : null}
-                    {row.node.parentOids.map((parentOid) => {
-                      const parentLane = row.lanesAfter.indexOf(parentOid);
-                      if (parentLane === -1) {
-                        return null;
-                      }
-                      return (
-                        <line
-                          key={`${row.node.oid}-${parentOid}`}
-                          x1={laneX(row.nodeLane)}
-                          x2={laneX(parentLane)}
-                          y1={GRAPH_NODE_Y}
-                          y2={GRAPH_ROW_HEIGHT}
-                          className={cn(row.node.isHead ? "stroke-primary" : "stroke-border")}
-                          strokeWidth={1.5}
-                        />
-                      );
-                    })}
-                    <circle
-                      cx={laneX(row.nodeLane)}
-                      cy={GRAPH_NODE_Y}
-                      r={row.node.isMergeCommit ? 4.5 : 4}
-                      className={cn(
-                        row.node.isHead
-                          ? "fill-primary stroke-primary"
-                          : "fill-foreground stroke-foreground",
-                      )}
+                    );
+                  })}
+                  {row.hadExistingLane ? (
+                    <line
+                      x1={laneX(row.nodeLane)}
+                      x2={laneX(row.nodeLane)}
+                      y1={rowTop}
+                      y2={nodeY}
+                      style={{ stroke: graphLaneColor(row.nodeLane) }}
+                      strokeOpacity={0.82}
                       strokeWidth={1.5}
                     />
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="truncate font-medium text-sm">{row.node.subject}</span>
-                    {refs.map((ref) => (
-                      <Badge
-                        key={ref.id}
-                        size="sm"
-                        variant={gitRefBadgeVariant(ref)}
-                        className="shrink-0"
-                      >
-                        {ref.label}
-                      </Badge>
-                    ))}
+                  ) : null}
+                  {row.node.parentOids.map((parentOid) => {
+                    const parentLane = row.lanesAfter.indexOf(parentOid);
+                    if (parentLane === -1) {
+                      return null;
+                    }
+                    return (
+                      <line
+                        key={`${row.node.oid}-${parentOid}`}
+                        x1={laneX(row.nodeLane)}
+                        x2={laneX(parentLane)}
+                        y1={nodeY}
+                        y2={rowBottom}
+                        style={{ stroke: graphLaneColor(parentLane) }}
+                        strokeOpacity={row.node.isHead ? 1 : 0.9}
+                        strokeWidth={1.5}
+                      />
+                    );
+                  })}
+                  {row.node.isHead ? (
+                    <circle
+                      cx={laneX(row.nodeLane)}
+                      cy={nodeY}
+                      r={row.node.isMergeCommit ? 7 : 6.5}
+                      fill="none"
+                      style={{ stroke: graphLaneColor(row.nodeLane) }}
+                      strokeOpacity={0.28}
+                      strokeWidth={2.5}
+                    />
+                  ) : null}
+                  <circle
+                    cx={laneX(row.nodeLane)}
+                    cy={nodeY}
+                    r={row.node.isMergeCommit ? 4.5 : 4}
+                    style={{
+                      fill: graphLaneColor(row.nodeLane),
+                      stroke: graphLaneColor(row.nodeLane),
+                    }}
+                    strokeOpacity={row.node.isHead ? 1 : 0.95}
+                    strokeWidth={1.5}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+          <div ref={rowsContainerRef} className="relative">
+            {rows.map((row, rowIndex) => {
+              const refs = refsByOid.get(row.node.oid) ?? [];
+              return (
+                <div
+                  key={row.node.oid}
+                  ref={(element) => {
+                    rowRefs.current[rowIndex] = element;
+                  }}
+                  className="grid items-stretch gap-3"
+                  style={{ gridTemplateColumns: `${graphWidth}px minmax(0,1fr)` }}
+                >
+                  <div aria-hidden="true" />
+                  <div className="min-w-0 py-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="truncate font-medium text-sm">{row.node.subject}</span>
+                      {refs.map((ref) => (
+                        <Badge
+                          key={ref.id}
+                          size="sm"
+                          variant={gitRefBadgeVariant(ref)}
+                          className="shrink-0"
+                        >
+                          {ref.label}
+                        </Badge>
+                      ))}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+                      <span>{row.node.shortOid}</span>
+                      <span>{row.node.authorName}</span>
+                      <span>{formatDateTime(row.node.authoredAt)}</span>
+                      {row.node.parentOids.length > 0 ? (
+                        <span>
+                          {row.node.parentOids.length} parent
+                          {row.node.parentOids.length === 1 ? "" : "s"}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
-                    <span>{row.node.shortOid}</span>
-                    <span>{row.node.authorName}</span>
-                    <span>{formatDateTime(row.node.authoredAt)}</span>
-                    {row.node.parentOids.length > 0 ? (
-                      <span>
-                        {row.node.parentOids.length} parent
-                        {row.node.parentOids.length === 1 ? "" : "s"}
-                      </span>
-                    ) : null}
-                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -939,7 +1001,7 @@ export function GitRepositoryWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-w-6xl">
+      <DialogPopup className="max-h-[84vh] max-w-5xl">
         <DialogHeader className="pb-4">
           <DialogTitle>Repository Workspace</DialogTitle>
           <DialogDescription>

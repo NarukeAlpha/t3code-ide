@@ -57,6 +57,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
+import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 
@@ -106,6 +107,10 @@ interface ProjectScriptsControlProps {
 }
 
 type ProjectActionsDialogTab = "custom" | "packageScripts";
+const PACKAGE_SCRIPTS_VISIBLE_COUNT = 5;
+const PACKAGE_SCRIPT_CARD_HEIGHT_REM = 5.75;
+const PACKAGE_SCRIPT_CARD_GAP_REM = 0.75;
+const PACKAGE_SCRIPT_LIST_MAX_HEIGHT = `${PACKAGE_SCRIPTS_VISIBLE_COUNT * PACKAGE_SCRIPT_CARD_HEIGHT_REM + (PACKAGE_SCRIPTS_VISIBLE_COUNT - 1) * PACKAGE_SCRIPT_CARD_GAP_REM}rem`;
 
 function normalizeShortcutKeyToken(key: string): string | null {
   const normalized = key.toLowerCase();
@@ -608,44 +613,59 @@ export default function ProjectScriptsControl({
                     {warning.message}
                   </p>
                 ))}
-                {detectedScripts.map((script) => (
-                  <div
-                    key={script.id}
-                    className="space-y-3 rounded-lg border border-border/70 px-3 py-3"
+                {detectedScripts.length > 0 ? (
+                  <ScrollArea
+                    className="rounded-lg"
+                    scrollbarGutter
+                    style={{ maxHeight: PACKAGE_SCRIPT_LIST_MAX_HEIGHT }}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm text-foreground">{script.displayName}</p>
-                        <p className="text-muted-foreground text-xs">
-                          {script.packageManager} · {script.scriptCommand}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setDialogOpen(false);
-                            onRunDetectedScript(script);
-                          }}
+                    <div className="space-y-3 pe-2">
+                      {detectedScripts.map((script) => (
+                        <div
+                          key={script.id}
+                          className="space-y-3 rounded-lg border border-border/70 px-3 py-3"
                         >
-                          Run
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => openSaveDetectedScriptDialog(script)}
-                        >
-                          Save as action
-                        </Button>
-                      </div>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm text-foreground">
+                                {script.displayName}
+                              </p>
+                              <p className="text-muted-foreground text-xs">
+                                {script.packageManager} · {script.scriptCommand}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setDialogOpen(false);
+                                  onRunDetectedScript(script);
+                                }}
+                              >
+                                Run
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => openSaveDetectedScriptDialog(script)}
+                              >
+                                Save as action
+                              </Button>
+                            </div>
+                          </div>
+                          <div
+                            className="truncate rounded-md bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground"
+                            title={script.command}
+                          >
+                            {script.command}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="rounded-md bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
-                      {script.command}
-                    </div>
-                  </div>
-                ))}
+                  </ScrollArea>
+                ) : null}
                 {!detectedScriptsQuery.isPending &&
                 !detectedScriptsQuery.error &&
                 detectedScripts.length === 0 ? (
