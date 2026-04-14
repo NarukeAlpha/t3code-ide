@@ -210,7 +210,8 @@ export function trimOrNull<T extends string>(value: T | null | undefined): T | n
 export function resolveApiModelId(modelSelection: ModelSelection): string {
   switch (modelSelection.provider) {
     case "claudeAgent": {
-      switch (modelSelection.options?.contextWindow) {
+      const options = modelSelection.options as ClaudeModelOptions | undefined;
+      switch (options?.contextWindow) {
         case "1m":
           return `${modelSelection.model}[1m]`;
         default:

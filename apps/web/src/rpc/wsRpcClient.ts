@@ -67,6 +67,7 @@ export interface WsRpcClient {
   readonly projects: {
     readonly searchEntries: RpcUnaryMethod<typeof WS_METHODS.projectsSearchEntries>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+    readonly listDetectedScripts: RpcUnaryMethod<typeof WS_METHODS.projectsListDetectedScripts>;
   };
   readonly shell: {
     readonly openInEditor: (input: {
@@ -92,10 +93,25 @@ export interface WsRpcClient {
     readonly createBranch: RpcUnaryMethod<typeof WS_METHODS.gitCreateBranch>;
     readonly checkout: RpcUnaryMethod<typeof WS_METHODS.gitCheckout>;
     readonly init: RpcUnaryMethod<typeof WS_METHODS.gitInit>;
+    readonly getRecentGraph: RpcUnaryMethod<typeof WS_METHODS.gitGetRecentGraph>;
     readonly resolvePullRequest: RpcUnaryMethod<typeof WS_METHODS.gitResolvePullRequest>;
     readonly preparePullRequestThread: RpcUnaryMethod<
       typeof WS_METHODS.gitPreparePullRequestThread
     >;
+  };
+  readonly github: {
+    readonly getWorkspace: RpcUnaryMethod<typeof WS_METHODS.githubGetWorkspace>;
+    readonly addPullRequestComment: RpcUnaryMethod<typeof WS_METHODS.githubAddPullRequestComment>;
+    readonly submitPullRequestReview: RpcUnaryMethod<
+      typeof WS_METHODS.githubSubmitPullRequestReview
+    >;
+  };
+  readonly database: {
+    readonly upsertConnection: RpcUnaryMethod<typeof WS_METHODS.databaseUpsertConnection>;
+    readonly deleteConnection: RpcUnaryMethod<typeof WS_METHODS.databaseDeleteConnection>;
+    readonly testConnection: RpcUnaryMethod<typeof WS_METHODS.databaseTestConnection>;
+    readonly getSchema: RpcUnaryMethod<typeof WS_METHODS.databaseGetSchema>;
+    readonly runReadOnlyQuery: RpcUnaryMethod<typeof WS_METHODS.databaseRunReadOnlyQuery>;
   };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
@@ -144,6 +160,8 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.projectsSearchEntries](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+      listDetectedScripts: (input) =>
+        transport.request((client) => client[WS_METHODS.projectsListDetectedScripts](input)),
     },
     shell: {
       openInEditor: (input) =>
@@ -193,10 +211,32 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.gitCreateBranch](input)),
       checkout: (input) => transport.request((client) => client[WS_METHODS.gitCheckout](input)),
       init: (input) => transport.request((client) => client[WS_METHODS.gitInit](input)),
+      getRecentGraph: (input) =>
+        transport.request((client) => client[WS_METHODS.gitGetRecentGraph](input)),
       resolvePullRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitResolvePullRequest](input)),
       preparePullRequestThread: (input) =>
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
+    },
+    github: {
+      getWorkspace: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetWorkspace](input)),
+      addPullRequestComment: (input) =>
+        transport.request((client) => client[WS_METHODS.githubAddPullRequestComment](input)),
+      submitPullRequestReview: (input) =>
+        transport.request((client) => client[WS_METHODS.githubSubmitPullRequestReview](input)),
+    },
+    database: {
+      upsertConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseUpsertConnection](input)),
+      deleteConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseDeleteConnection](input)),
+      testConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseTestConnection](input)),
+      getSchema: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseGetSchema](input)),
+      runReadOnlyQuery: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseRunReadOnlyQuery](input)),
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),

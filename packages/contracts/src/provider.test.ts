@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
+import type { ClaudeModelOptions, CodexModelOptions } from "./model";
 import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
@@ -28,8 +29,9 @@ describe("ProviderSessionStartInput", () => {
     if (parsed.modelSelection?.provider !== "codex") {
       throw new Error("Expected codex modelSelection");
     }
-    expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
-    expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    const options = parsed.modelSelection.options as CodexModelOptions | undefined;
+    expect(options?.reasoningEffort).toBe("high");
+    expect(options?.fastMode).toBe(true);
   });
 
   it("rejects payloads without runtime mode", () => {
@@ -63,9 +65,10 @@ describe("ProviderSessionStartInput", () => {
     if (parsed.modelSelection?.provider !== "claudeAgent") {
       throw new Error("Expected claude modelSelection");
     }
-    expect(parsed.modelSelection.options?.thinking).toBe(true);
-    expect(parsed.modelSelection.options?.effort).toBe("max");
-    expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    const options = parsed.modelSelection.options as ClaudeModelOptions | undefined;
+    expect(options?.thinking).toBe(true);
+    expect(options?.effort).toBe("max");
+    expect(options?.fastMode).toBe(true);
     expect(parsed.runtimeMode).toBe("full-access");
   });
 });
@@ -89,8 +92,9 @@ describe("ProviderSendTurnInput", () => {
     if (parsed.modelSelection?.provider !== "codex") {
       throw new Error("Expected codex modelSelection");
     }
-    expect(parsed.modelSelection.options?.reasoningEffort).toBe("xhigh");
-    expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    const options = parsed.modelSelection.options as CodexModelOptions | undefined;
+    expect(options?.reasoningEffort).toBe("xhigh");
+    expect(options?.fastMode).toBe(true);
   });
 
   it("accepts claude modelSelection including ultrathink", () => {
@@ -110,7 +114,8 @@ describe("ProviderSendTurnInput", () => {
     if (parsed.modelSelection?.provider !== "claudeAgent") {
       throw new Error("Expected claude modelSelection");
     }
-    expect(parsed.modelSelection.options?.effort).toBe("ultrathink");
-    expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    const options = parsed.modelSelection.options as ClaudeModelOptions | undefined;
+    expect(options?.effort).toBe("ultrathink");
+    expect(options?.fastMode).toBe(true);
   });
 });

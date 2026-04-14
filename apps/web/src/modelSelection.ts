@@ -2,6 +2,7 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   type ModelSelection,
   type ProviderKind,
+  type ProviderModelOptions,
   type ServerProvider,
 } from "@t3tools/contracts";
 import { normalizeModelSlug, resolveSelectableModel } from "@t3tools/shared/model";
@@ -45,9 +46,43 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
     placeholder: "your-claude-model-slug",
     example: "claude-sonnet-5-0",
   },
+  opencode: {
+    provider: "opencode",
+    title: "OpenCode",
+    description: "Save additional OpenCode model slugs for the picker and `/model` command.",
+    placeholder: "your-opencode-model-slug",
+    example: "openai/gpt-5",
+  },
 };
 
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
+
+export function createModelSelection<P extends ProviderKind>(
+  provider: P,
+  model: string,
+  options?: ProviderModelOptions[P],
+): Extract<ModelSelection, { provider: P }> {
+  switch (provider) {
+    case "codex":
+      return (
+        options
+          ? { provider, model, options: options as ProviderModelOptions["codex"] }
+          : { provider, model }
+      ) as Extract<ModelSelection, { provider: P }>;
+    case "claudeAgent":
+      return (
+        options
+          ? { provider, model, options: options as ProviderModelOptions["claudeAgent"] }
+          : { provider, model }
+      ) as Extract<ModelSelection, { provider: P }>;
+    case "opencode":
+      return (
+        options
+          ? { provider, model, options: options as ProviderModelOptions["opencode"] }
+          : { provider, model }
+      ) as Extract<ModelSelection, { provider: P }>;
+  }
+}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
@@ -165,6 +200,12 @@ export function getCustomModelOptionsByProvider(
       "claudeAgent",
       selectedProvider === "claudeAgent" ? selectedModel : undefined,
     ),
+    opencode: getAppModelOptions(
+      settings,
+      providers,
+      "opencode",
+      selectedProvider === "opencode" ? selectedModel : undefined,
+    ),
   };
 }
 
@@ -192,9 +233,5 @@ export function resolveAppModelSelectionState(
     },
   });
 
-  return {
-    provider,
-    model,
-    ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch } : {}),
-  };
+  return createModelSelection(provider, model, modelOptionsForDispatch);
 }

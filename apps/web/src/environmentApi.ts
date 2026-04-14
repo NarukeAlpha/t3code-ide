@@ -17,6 +17,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     projects: {
       searchEntries: rpcClient.projects.searchEntries,
       writeFile: rpcClient.projects.writeFile,
+      listDetectedScripts: rpcClient.projects.listDetectedScripts,
     },
     git: {
       pull: rpcClient.git.pull,
@@ -28,8 +29,21 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       createBranch: rpcClient.git.createBranch,
       checkout: rpcClient.git.checkout,
       init: rpcClient.git.init,
+      getRecentGraph: rpcClient.git.getRecentGraph,
       resolvePullRequest: rpcClient.git.resolvePullRequest,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
+    },
+    github: {
+      getWorkspace: rpcClient.github.getWorkspace,
+      addPullRequestComment: rpcClient.github.addPullRequestComment,
+      submitPullRequestReview: rpcClient.github.submitPullRequestReview,
+    },
+    database: {
+      upsertConnection: rpcClient.database.upsertConnection,
+      deleteConnection: rpcClient.database.deleteConnection,
+      testConnection: rpcClient.database.testConnection,
+      getSchema: rpcClient.database.getSchema,
+      runReadOnlyQuery: rpcClient.database.runReadOnlyQuery,
     },
     orchestration: {
       dispatchCommand: rpcClient.orchestration.dispatchCommand,

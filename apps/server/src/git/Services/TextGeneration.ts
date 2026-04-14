@@ -12,8 +12,8 @@ import type { ChatAttachment, ModelSelection } from "@t3tools/contracts";
 
 import type { TextGenerationError } from "@t3tools/contracts";
 
-/** Providers that support git text generation (commit messages, PR content, branch names). */
-export type TextGenerationProvider = "codex" | "claudeAgent";
+/** Providers addressable through git text generation settings. */
+export type TextGenerationProvider = ModelSelection["provider"];
 
 export interface CommitMessageGenerationInput {
   cwd: string;

@@ -23,6 +23,10 @@ export const gitQueryKeys = {
     ["git", "branches", environmentId ?? null, cwd] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
     ["git", "branches", environmentId ?? null, cwd, "search", query] as const,
+  recentGraph: (environmentId: EnvironmentId | null, cwd: string | null, limit: number) =>
+    ["git", "recent-graph", environmentId ?? null, cwd, limit] as const,
+  githubWorkspace: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "github-workspace", environmentId ?? null, cwd] as const,
 };
 
 export const gitMutationKeys = {
@@ -36,6 +40,10 @@ export const gitMutationKeys = {
     ["git", "mutation", "pull", environmentId ?? null, cwd] as const,
   preparePullRequestThread: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
+  addPullRequestComment: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "github-comment", environmentId ?? null, cwd] as const,
+  submitPullRequestReview: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "github-review", environmentId ?? null, cwd] as const,
 };
 
 export function invalidateGitQueries(
@@ -61,6 +69,20 @@ function invalidateGitBranchQueries(
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+}
+
+function invalidateGitHubWorkspaceQueries(
+  queryClient: QueryClient,
+  environmentId: EnvironmentId | null,
+  cwd: string | null,
+) {
+  if (cwd === null) {
+    return Promise.resolve();
+  }
+
+  return queryClient.invalidateQueries({
+    queryKey: gitQueryKeys.githubWorkspace(environmentId, cwd),
+  });
 }
 
 export function gitBranchSearchInfiniteQueryOptions(input: {
@@ -118,6 +140,50 @@ export function gitResolvePullRequestQueryOptions(input: {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  });
+}
+
+export function gitRecentGraphQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  limit?: number;
+  enabled?: boolean;
+}) {
+  const limit = input.limit ?? 200;
+  return queryOptions({
+    queryKey: gitQueryKeys.recentGraph(input.environmentId, input.cwd, limit),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Git graph is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.git.getRecentGraph({ cwd: input.cwd, limit });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitHubWorkspaceQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.githubWorkspace(input.environmentId, input.cwd),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("GitHub workspace is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.github.getWorkspace({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 
@@ -281,6 +347,52 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitAddPullRequestCommentMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.addPullRequestComment(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Parameters<
+        ReturnType<typeof ensureEnvironmentApi>["github"]["addPullRequestComment"]
+      >[0],
+    ) => {
+      if (!input.environmentId) {
+        throw new Error("GitHub pull request comments are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).github.addPullRequestComment(args);
+    },
+    onSuccess: async () => {
+      await invalidateGitHubWorkspaceQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitSubmitPullRequestReviewMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.submitPullRequestReview(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Parameters<
+        ReturnType<typeof ensureEnvironmentApi>["github"]["submitPullRequestReview"]
+      >[0],
+    ) => {
+      if (!input.environmentId) {
+        throw new Error("GitHub pull request reviews are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).github.submitPullRequestReview(args);
+    },
+    onSuccess: async () => {
+      await invalidateGitHubWorkspaceQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }

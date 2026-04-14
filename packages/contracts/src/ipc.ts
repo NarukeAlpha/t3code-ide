@@ -1,4 +1,14 @@
 import type {
+  DatabaseDeleteConnectionInput,
+  DatabaseGetSchemaInput,
+  DatabaseReadOnlyQueryResult,
+  DatabaseRunReadOnlyQueryInput,
+  DatabaseSchemaResult,
+  DatabaseTestConnectionInput,
+  DatabaseTestConnectionResult,
+  DatabaseUpsertConnectionInput,
+} from "./database";
+import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
@@ -12,6 +22,8 @@ import type {
   GitListBranchesResult,
   GitPullInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitStatusInput,
@@ -19,6 +31,15 @@ import type {
   GitCreateBranchResult,
 } from "./git";
 import type {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestReviewInput,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github";
+import type {
+  ListDetectedProjectScriptsInput,
+  ListDetectedProjectScriptsResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -227,6 +248,9 @@ export interface EnvironmentApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    listDetectedScripts: (
+      input: ListDetectedProjectScriptsInput,
+    ) => Promise<ListDetectedProjectScriptsResult>;
   };
   git: {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
@@ -241,6 +265,7 @@ export interface EnvironmentApi {
     ) => Promise<GitPreparePullRequestThreadResult>;
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+    getRecentGraph: (input: GitRecentGraphInput) => Promise<GitRecentGraphResult>;
     onStatus: (
       input: GitStatusInput,
       callback: (status: GitStatusResult) => void,
@@ -248,6 +273,24 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  github: {
+    getWorkspace: (input: GitHubWorkspaceInput) => Promise<GitHubWorkspaceSnapshot>;
+    addPullRequestComment: (
+      input: GitHubPullRequestCommentInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
+    submitPullRequestReview: (
+      input: GitHubPullRequestReviewInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
+  };
+  database: {
+    upsertConnection: (input: DatabaseUpsertConnectionInput) => Promise<void>;
+    deleteConnection: (input: DatabaseDeleteConnectionInput) => Promise<void>;
+    testConnection: (input: DatabaseTestConnectionInput) => Promise<DatabaseTestConnectionResult>;
+    getSchema: (input: DatabaseGetSchemaInput) => Promise<DatabaseSchemaResult>;
+    runReadOnlyQuery: (
+      input: DatabaseRunReadOnlyQueryInput,
+    ) => Promise<DatabaseReadOnlyQueryResult>;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;

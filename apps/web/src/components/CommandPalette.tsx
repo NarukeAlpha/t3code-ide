@@ -8,6 +8,7 @@ import {
   ArrowLeftIcon,
   ArrowUpIcon,
   MessageSquareIcon,
+  PlayIcon,
   SettingsIcon,
   SquarePenIcon,
 } from "lucide-react";
@@ -68,6 +69,7 @@ import { Kbd, KbdGroup } from "./ui/kbd";
 import { toastManager } from "./ui/toast";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
+import { useProjectActionsDialogStore } from "../projectActionsDialogStore";
 
 export function CommandPalette({ children }: { children: ReactNode }) {
   const open = useCommandPaletteStore((store) => store.open);
@@ -149,6 +151,7 @@ function OpenCommandPaletteDialog() {
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
   const paletteMode = getCommandPaletteMode({ currentView });
+  const requestProjectActionsDialog = useProjectActionsDialogStore((store) => store.requestOpen);
 
   const projectTitleById = useMemo(
     () => new Map<ProjectId, string>(projects.map((project) => [project.id, project.name])),
@@ -310,6 +313,21 @@ function OpenCommandPaletteDialog() {
             defaultThreadEnvMode: settings.defaultThreadEnvMode,
             handleNewThread,
           });
+        },
+      });
+      actionItems.push({
+        kind: "action",
+        value: "action:project-actions",
+        searchTerms: ["run project action", "package scripts", "actions", "scripts", "runner"],
+        title: (
+          <>
+            Run action in <span className="font-semibold">{activeProjectTitle}</span>
+          </>
+        ),
+        icon: <PlayIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "projectActions.open",
+        run: async () => {
+          requestProjectActionsDialog("auto");
         },
       });
     }

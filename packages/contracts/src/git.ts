@@ -44,6 +44,7 @@ const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
 const GitPullRequestReference = TrimmedNonEmptyStringSchema;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
+const GIT_RECENT_GRAPH_MAX_LIMIT = 500;
 export const GitHostingProviderKind = Schema.Literals(["github", "gitlab", "unknown"]);
 export type GitHostingProviderKind = typeof GitHostingProviderKind.Type;
 export const GitHostingProvider = Schema.Struct({
@@ -189,6 +190,12 @@ export const GitInitInput = Schema.Struct({
 });
 export type GitInitInput = typeof GitInitInput.Type;
 
+export const GitRecentGraphInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_RECENT_GRAPH_MAX_LIMIT))),
+});
+export type GitRecentGraphInput = typeof GitRecentGraphInput.Type;
+
 // RPC Results
 
 const GitStatusPr = Schema.Struct({
@@ -319,6 +326,55 @@ export const GitPullResult = Schema.Struct({
   upstreamBranch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
 });
 export type GitPullResult = typeof GitPullResult.Type;
+
+export const GitGraphRefType = Schema.Literals(["branch", "remote", "tag", "head", "worktree"]);
+export type GitGraphRefType = typeof GitGraphRefType.Type;
+
+export const GitGraphNode = Schema.Struct({
+  oid: TrimmedNonEmptyStringSchema,
+  shortOid: TrimmedNonEmptyStringSchema,
+  parentOids: Schema.Array(TrimmedNonEmptyStringSchema),
+  subject: TrimmedNonEmptyStringSchema,
+  authoredAt: TrimmedNonEmptyStringSchema,
+  authorName: TrimmedNonEmptyStringSchema,
+  isHead: Schema.Boolean,
+  isMergeCommit: Schema.Boolean,
+});
+export type GitGraphNode = typeof GitGraphNode.Type;
+
+export const GitGraphRef = Schema.Struct({
+  id: TrimmedNonEmptyStringSchema,
+  targetOid: TrimmedNonEmptyStringSchema,
+  label: TrimmedNonEmptyStringSchema,
+  type: GitGraphRefType,
+  branchName: Schema.optional(TrimmedNonEmptyStringSchema),
+  worktreePath: Schema.optional(TrimmedNonEmptyStringSchema),
+  current: Schema.optional(Schema.Boolean),
+  isDefault: Schema.optional(Schema.Boolean),
+});
+export type GitGraphRef = typeof GitGraphRef.Type;
+
+export const GitTopologyWorktree = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  branch: TrimmedNonEmptyStringSchema,
+});
+export type GitTopologyWorktree = typeof GitTopologyWorktree.Type;
+
+export const GitTopologySummary = Schema.Struct({
+  headOid: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  headBranch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  defaultBranch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  worktrees: Schema.Array(GitTopologyWorktree),
+});
+export type GitTopologySummary = typeof GitTopologySummary.Type;
+
+export const GitRecentGraphResult = Schema.Struct({
+  nodes: Schema.Array(GitGraphNode),
+  refs: Schema.Array(GitGraphRef),
+  topology: GitTopologySummary,
+  truncated: Schema.Boolean,
+});
+export type GitRecentGraphResult = typeof GitRecentGraphResult.Type;
 
 // RPC / domain errors
 export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()("GitCommandError", {

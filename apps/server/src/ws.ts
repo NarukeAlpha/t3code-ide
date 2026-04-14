@@ -3,6 +3,7 @@ import {
   type AuthAccessStreamEvent,
   AuthSessionId,
   CommandId,
+  DatabaseError,
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
@@ -14,6 +15,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectDetectedScriptsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -31,6 +33,7 @@ import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster";
+import { GitWorkspace } from "./git/Services/GitWorkspace";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
@@ -49,6 +52,7 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+import { ProjectDetectedScriptCatalog } from "./project/Services/ProjectDetectedScriptCatalog";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
@@ -138,6 +142,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitManager = yield* GitManager;
       const git = yield* GitCore;
       const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+      const gitWorkspace = yield* GitWorkspace;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -146,6 +151,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const projectDetectedScriptCatalog = yield* ProjectDetectedScriptCatalog;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
@@ -764,6 +770,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsListDetectedScripts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDetectedScripts,
+            projectDetectedScriptCatalog.list(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectDetectedScriptsError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
             "rpc.aggregate": "workspace",
@@ -866,6 +886,81 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.gitInit,
             git.initRepo(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetRecentGraph]: (input) =>
+          observeRpcEffect(WS_METHODS.gitGetRecentGraph, gitWorkspace.getRecentGraph(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubGetWorkspace]: (input) =>
+          observeRpcEffect(WS_METHODS.githubGetWorkspace, gitWorkspace.getGitHubWorkspace(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubAddPullRequestComment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubAddPullRequestComment,
+            gitWorkspace.addPullRequestComment(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubSubmitPullRequestReview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubSubmitPullRequestReview,
+            gitWorkspace.submitPullRequestReview(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.databaseUpsertConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseUpsertConnection,
+            Effect.fail(
+              new DatabaseError({
+                operation: "upsertConnection",
+                detail: `Database connections are not implemented yet for project ${input.projectId}.`,
+              }),
+            ),
+            { "rpc.aggregate": "database" },
+          ),
+        [WS_METHODS.databaseDeleteConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseDeleteConnection,
+            Effect.fail(
+              new DatabaseError({
+                operation: "deleteConnection",
+                detail: `Database connections are not implemented yet for connection ${input.connectionId}.`,
+              }),
+            ),
+            { "rpc.aggregate": "database" },
+          ),
+        [WS_METHODS.databaseTestConnection]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseTestConnection,
+            Effect.fail(
+              new DatabaseError({
+                operation: "testConnection",
+                detail: "Database testing is not implemented yet.",
+              }),
+            ),
+            { "rpc.aggregate": "database" },
+          ),
+        [WS_METHODS.databaseGetSchema]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseGetSchema,
+            Effect.fail(
+              new DatabaseError({
+                operation: "getSchema",
+                detail: `Database schema exploration is not implemented yet for connection ${input.connectionId}.`,
+              }),
+            ),
+            { "rpc.aggregate": "database" },
+          ),
+        [WS_METHODS.databaseRunReadOnlyQuery]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseRunReadOnlyQuery,
+            Effect.fail(
+              new DatabaseError({
+                operation: "runReadOnlyQuery",
+                detail: `Database query execution is not implemented yet for connection ${input.connectionId}.`,
+              }),
+            ),
+            { "rpc.aggregate": "database" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {

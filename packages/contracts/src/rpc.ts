@@ -5,6 +5,17 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { OpenError, OpenInEditorInput } from "./editor";
 import { AuthAccessStreamEvent } from "./auth";
 import {
+  DatabaseDeleteConnectionInput,
+  DatabaseError,
+  DatabaseGetSchemaInput,
+  DatabaseReadOnlyQueryResult,
+  DatabaseRunReadOnlyQueryInput,
+  DatabaseSchemaResult,
+  DatabaseTestConnectionInput,
+  DatabaseTestConnectionResult,
+  DatabaseUpsertConnectionInput,
+} from "./database";
+import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCheckoutResult,
@@ -22,6 +33,8 @@ import {
   GitPullInput,
   GitPullRequestRefInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
@@ -29,6 +42,14 @@ import {
   GitStatusResult,
   GitStatusStreamEvent,
 } from "./git";
+import {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestReviewInput,
+  GitHubWorkspaceError,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github";
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ClientOrchestrationCommand,
@@ -44,6 +65,9 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration";
 import {
+  ListDetectedProjectScriptsInput,
+  ListDetectedProjectScriptsResult,
+  ProjectDetectedScriptsError,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -79,6 +103,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsListDetectedScripts: "projects.listDetectedScripts",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -95,6 +120,19 @@ export const WS_METHODS = {
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetRecentGraph: "git.getRecentGraph",
+
+  // GitHub methods
+  githubGetWorkspace: "github.getWorkspace",
+  githubAddPullRequestComment: "github.addPullRequestComment",
+  githubSubmitPullRequestReview: "github.submitPullRequestReview",
+
+  // Database methods
+  databaseUpsertConnection: "database.upsertConnection",
+  databaseDeleteConnection: "database.deleteConnection",
+  databaseTestConnection: "database.testConnection",
+  databaseGetSchema: "database.getSchema",
+  databaseRunReadOnlyQuery: "database.runReadOnlyQuery",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -158,6 +196,12 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsListDetectedScriptsRpc = Rpc.make(WS_METHODS.projectsListDetectedScripts, {
+  payload: ListDetectedProjectScriptsInput,
+  success: ListDetectedProjectScriptsResult,
+  error: ProjectDetectedScriptsError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -235,6 +279,63 @@ export const WsGitCheckoutRpc = Rpc.make(WS_METHODS.gitCheckout, {
 export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
   payload: GitInitInput,
   error: GitCommandError,
+});
+
+export const WsGitGetRecentGraphRpc = Rpc.make(WS_METHODS.gitGetRecentGraph, {
+  payload: GitRecentGraphInput,
+  success: GitRecentGraphResult,
+  error: GitCommandError,
+});
+
+export const WsGitHubGetWorkspaceRpc = Rpc.make(WS_METHODS.githubGetWorkspace, {
+  payload: GitHubWorkspaceInput,
+  success: GitHubWorkspaceSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubAddPullRequestCommentRpc = Rpc.make(WS_METHODS.githubAddPullRequestComment, {
+  payload: GitHubPullRequestCommentInput,
+  success: GitHubWorkspaceWriteResult,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubSubmitPullRequestReviewRpc = Rpc.make(
+  WS_METHODS.githubSubmitPullRequestReview,
+  {
+    payload: GitHubPullRequestReviewInput,
+    success: GitHubWorkspaceWriteResult,
+    error: GitHubWorkspaceError,
+  },
+);
+
+export const WsDatabaseUpsertConnectionRpc = Rpc.make(WS_METHODS.databaseUpsertConnection, {
+  payload: DatabaseUpsertConnectionInput,
+  success: Schema.Void,
+  error: DatabaseError,
+});
+
+export const WsDatabaseDeleteConnectionRpc = Rpc.make(WS_METHODS.databaseDeleteConnection, {
+  payload: DatabaseDeleteConnectionInput,
+  success: Schema.Void,
+  error: DatabaseError,
+});
+
+export const WsDatabaseTestConnectionRpc = Rpc.make(WS_METHODS.databaseTestConnection, {
+  payload: DatabaseTestConnectionInput,
+  success: DatabaseTestConnectionResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseGetSchemaRpc = Rpc.make(WS_METHODS.databaseGetSchema, {
+  payload: DatabaseGetSchemaInput,
+  success: DatabaseSchemaResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseRunReadOnlyQueryRpc = Rpc.make(WS_METHODS.databaseRunReadOnlyQuery, {
+  payload: DatabaseRunReadOnlyQueryInput,
+  success: DatabaseReadOnlyQueryResult,
+  error: DatabaseError,
 });
 
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
@@ -349,6 +450,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsListDetectedScriptsRpc,
   WsShellOpenInEditorRpc,
   WsSubscribeGitStatusRpc,
   WsGitPullRpc,
@@ -362,6 +464,15 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,
   WsGitInitRpc,
+  WsGitGetRecentGraphRpc,
+  WsGitHubGetWorkspaceRpc,
+  WsGitHubAddPullRequestCommentRpc,
+  WsGitHubSubmitPullRequestReviewRpc,
+  WsDatabaseUpsertConnectionRpc,
+  WsDatabaseDeleteConnectionRpc,
+  WsDatabaseTestConnectionRpc,
+  WsDatabaseGetSchemaRpc,
+  WsDatabaseRunReadOnlyQueryRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,
