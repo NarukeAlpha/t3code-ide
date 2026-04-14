@@ -1,14 +1,4 @@
 import type {
-  DatabaseDeleteConnectionInput,
-  DatabaseGetSchemaInput,
-  DatabaseReadOnlyQueryResult,
-  DatabaseRunReadOnlyQueryInput,
-  DatabaseSchemaResult,
-  DatabaseTestConnectionInput,
-  DatabaseTestConnectionResult,
-  DatabaseUpsertConnectionInput,
-} from "./database";
-import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
@@ -282,15 +272,6 @@ export interface EnvironmentApi {
     submitPullRequestReview: (
       input: GitHubPullRequestReviewInput,
     ) => Promise<GitHubWorkspaceWriteResult>;
-  };
-  database: {
-    upsertConnection: (input: DatabaseUpsertConnectionInput) => Promise<void>;
-    deleteConnection: (input: DatabaseDeleteConnectionInput) => Promise<void>;
-    testConnection: (input: DatabaseTestConnectionInput) => Promise<DatabaseTestConnectionResult>;
-    getSchema: (input: DatabaseGetSchemaInput) => Promise<DatabaseSchemaResult>;
-    runReadOnlyQuery: (
-      input: DatabaseRunReadOnlyQueryInput,
-    ) => Promise<DatabaseReadOnlyQueryResult>;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;

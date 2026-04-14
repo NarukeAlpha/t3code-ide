@@ -5,17 +5,6 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { OpenError, OpenInEditorInput } from "./editor";
 import { AuthAccessStreamEvent } from "./auth";
 import {
-  DatabaseDeleteConnectionInput,
-  DatabaseError,
-  DatabaseGetSchemaInput,
-  DatabaseReadOnlyQueryResult,
-  DatabaseRunReadOnlyQueryInput,
-  DatabaseSchemaResult,
-  DatabaseTestConnectionInput,
-  DatabaseTestConnectionResult,
-  DatabaseUpsertConnectionInput,
-} from "./database";
-import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCheckoutResult,
@@ -126,13 +115,6 @@ export const WS_METHODS = {
   githubGetWorkspace: "github.getWorkspace",
   githubAddPullRequestComment: "github.addPullRequestComment",
   githubSubmitPullRequestReview: "github.submitPullRequestReview",
-
-  // Database methods
-  databaseUpsertConnection: "database.upsertConnection",
-  databaseDeleteConnection: "database.deleteConnection",
-  databaseTestConnection: "database.testConnection",
-  databaseGetSchema: "database.getSchema",
-  databaseRunReadOnlyQuery: "database.runReadOnlyQuery",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -308,36 +290,6 @@ export const WsGitHubSubmitPullRequestReviewRpc = Rpc.make(
   },
 );
 
-export const WsDatabaseUpsertConnectionRpc = Rpc.make(WS_METHODS.databaseUpsertConnection, {
-  payload: DatabaseUpsertConnectionInput,
-  success: Schema.Void,
-  error: DatabaseError,
-});
-
-export const WsDatabaseDeleteConnectionRpc = Rpc.make(WS_METHODS.databaseDeleteConnection, {
-  payload: DatabaseDeleteConnectionInput,
-  success: Schema.Void,
-  error: DatabaseError,
-});
-
-export const WsDatabaseTestConnectionRpc = Rpc.make(WS_METHODS.databaseTestConnection, {
-  payload: DatabaseTestConnectionInput,
-  success: DatabaseTestConnectionResult,
-  error: DatabaseError,
-});
-
-export const WsDatabaseGetSchemaRpc = Rpc.make(WS_METHODS.databaseGetSchema, {
-  payload: DatabaseGetSchemaInput,
-  success: DatabaseSchemaResult,
-  error: DatabaseError,
-});
-
-export const WsDatabaseRunReadOnlyQueryRpc = Rpc.make(WS_METHODS.databaseRunReadOnlyQuery, {
-  payload: DatabaseRunReadOnlyQueryInput,
-  success: DatabaseReadOnlyQueryResult,
-  error: DatabaseError,
-});
-
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -468,11 +420,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitHubGetWorkspaceRpc,
   WsGitHubAddPullRequestCommentRpc,
   WsGitHubSubmitPullRequestReviewRpc,
-  WsDatabaseUpsertConnectionRpc,
-  WsDatabaseDeleteConnectionRpc,
-  WsDatabaseTestConnectionRpc,
-  WsDatabaseGetSchemaRpc,
-  WsDatabaseRunReadOnlyQueryRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

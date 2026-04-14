@@ -3,7 +3,6 @@ import {
   type AuthAccessStreamEvent,
   AuthSessionId,
   CommandId,
-  DatabaseError,
   EventId,
   type OrchestrationCommand,
   type GitActionProgressEvent,
@@ -906,61 +905,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.githubSubmitPullRequestReview,
             gitWorkspace.submitPullRequestReview(input),
             { "rpc.aggregate": "git" },
-          ),
-        [WS_METHODS.databaseUpsertConnection]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.databaseUpsertConnection,
-            Effect.fail(
-              new DatabaseError({
-                operation: "upsertConnection",
-                detail: `Database connections are not implemented yet for project ${input.projectId}.`,
-              }),
-            ),
-            { "rpc.aggregate": "database" },
-          ),
-        [WS_METHODS.databaseDeleteConnection]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.databaseDeleteConnection,
-            Effect.fail(
-              new DatabaseError({
-                operation: "deleteConnection",
-                detail: `Database connections are not implemented yet for connection ${input.connectionId}.`,
-              }),
-            ),
-            { "rpc.aggregate": "database" },
-          ),
-        [WS_METHODS.databaseTestConnection]: (_input) =>
-          observeRpcEffect(
-            WS_METHODS.databaseTestConnection,
-            Effect.fail(
-              new DatabaseError({
-                operation: "testConnection",
-                detail: "Database testing is not implemented yet.",
-              }),
-            ),
-            { "rpc.aggregate": "database" },
-          ),
-        [WS_METHODS.databaseGetSchema]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.databaseGetSchema,
-            Effect.fail(
-              new DatabaseError({
-                operation: "getSchema",
-                detail: `Database schema exploration is not implemented yet for connection ${input.connectionId}.`,
-              }),
-            ),
-            { "rpc.aggregate": "database" },
-          ),
-        [WS_METHODS.databaseRunReadOnlyQuery]: (input) =>
-          observeRpcEffect(
-            WS_METHODS.databaseRunReadOnlyQuery,
-            Effect.fail(
-              new DatabaseError({
-                operation: "runReadOnlyQuery",
-                detail: `Database query execution is not implemented yet for connection ${input.connectionId}.`,
-              }),
-            ),
-            { "rpc.aggregate": "database" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
           observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {

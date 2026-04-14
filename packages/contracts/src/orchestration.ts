@@ -1,7 +1,6 @@
 import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { RepositoryIdentity } from "./environment";
-import { DatabaseConnectionDescriptor } from "./database";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -162,7 +161,6 @@ export const OrchestrationProject = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
-  databaseConnections: Schema.optional(Schema.Array(DatabaseConnectionDescriptor)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -427,7 +425,6 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  databaseConnections: Schema.optional(Schema.Array(DatabaseConnectionDescriptor)),
 });
 
 const ProjectDeleteCommand = Schema.Struct({
@@ -762,7 +759,6 @@ export const ProjectCreatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
-  databaseConnections: Schema.optional(Schema.Array(DatabaseConnectionDescriptor)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -774,7 +770,6 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
-  databaseConnections: Schema.optional(Schema.Array(DatabaseConnectionDescriptor)),
   updatedAt: IsoDateTime,
 });
 

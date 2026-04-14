@@ -38,13 +38,6 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       addPullRequestComment: rpcClient.github.addPullRequestComment,
       submitPullRequestReview: rpcClient.github.submitPullRequestReview,
     },
-    database: {
-      upsertConnection: rpcClient.database.upsertConnection,
-      deleteConnection: rpcClient.database.deleteConnection,
-      testConnection: rpcClient.database.testConnection,
-      getSchema: rpcClient.database.getSchema,
-      runReadOnlyQuery: rpcClient.database.runReadOnlyQuery,
-    },
     orchestration: {
       dispatchCommand: rpcClient.orchestration.dispatchCommand,
       getTurnDiff: rpcClient.orchestration.getTurnDiff,

@@ -106,13 +106,6 @@ export interface WsRpcClient {
       typeof WS_METHODS.githubSubmitPullRequestReview
     >;
   };
-  readonly database: {
-    readonly upsertConnection: RpcUnaryMethod<typeof WS_METHODS.databaseUpsertConnection>;
-    readonly deleteConnection: RpcUnaryMethod<typeof WS_METHODS.databaseDeleteConnection>;
-    readonly testConnection: RpcUnaryMethod<typeof WS_METHODS.databaseTestConnection>;
-    readonly getSchema: RpcUnaryMethod<typeof WS_METHODS.databaseGetSchema>;
-    readonly runReadOnlyQuery: RpcUnaryMethod<typeof WS_METHODS.databaseRunReadOnlyQuery>;
-  };
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
@@ -225,18 +218,6 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[WS_METHODS.githubAddPullRequestComment](input)),
       submitPullRequestReview: (input) =>
         transport.request((client) => client[WS_METHODS.githubSubmitPullRequestReview](input)),
-    },
-    database: {
-      upsertConnection: (input) =>
-        transport.request((client) => client[WS_METHODS.databaseUpsertConnection](input)),
-      deleteConnection: (input) =>
-        transport.request((client) => client[WS_METHODS.databaseDeleteConnection](input)),
-      testConnection: (input) =>
-        transport.request((client) => client[WS_METHODS.databaseTestConnection](input)),
-      getSchema: (input) =>
-        transport.request((client) => client[WS_METHODS.databaseGetSchema](input)),
-      runReadOnlyQuery: (input) =>
-        transport.request((client) => client[WS_METHODS.databaseRunReadOnlyQuery](input)),
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
