@@ -14,6 +14,7 @@ import {
   normalizeProjectPathForComparison,
   normalizeProjectPathForDispatch,
   isUnsupportedWindowsProjectPath,
+  resolveFilesystemBrowseQuery,
   resolveProjectPathForDispatch,
 } from "./projectPaths";
 
@@ -61,6 +62,33 @@ describe("projectPaths", () => {
     expect(isFilesystemBrowseQuery("C:\\Work\\Repo\\", "Win32")).toBe(true);
     expect(isUnsupportedWindowsProjectPath("C:\\Work\\Repo\\", "MacIntel")).toBe(true);
     expect(isUnsupportedWindowsProjectPath("C:\\Work\\Repo\\", "Win32")).toBe(false);
+  });
+
+  it("keeps add-project browse queries relative to the active directory when needed", () => {
+    expect(
+      resolveFilesystemBrowseQuery("codething", {
+        fallbackDirectory: "~/Development/",
+        treatBareAsRelative: true,
+      }),
+    ).toBe("~/Development/codething");
+    expect(
+      resolveFilesystemBrowseQuery("codething/src", {
+        fallbackDirectory: "~/Development/",
+        treatBareAsRelative: true,
+      }),
+    ).toBe("~/Development/codething/src");
+    expect(
+      resolveFilesystemBrowseQuery("~/codething", {
+        fallbackDirectory: "~/Development/",
+        treatBareAsRelative: true,
+      }),
+    ).toBe("~/codething");
+    expect(
+      resolveFilesystemBrowseQuery("../codething", {
+        fallbackDirectory: "~/Development/",
+        treatBareAsRelative: true,
+      }),
+    ).toBe("../codething");
   });
 
   it("detects explicit relative project paths", () => {

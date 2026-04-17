@@ -93,6 +93,15 @@ export interface NewProjectScriptInput {
   keybinding: string | null;
 }
 
+interface ProjectScriptDialogDraft {
+  editingScriptId: string | null;
+  name: string;
+  command: string;
+  icon: ProjectScriptIcon;
+  runOnWorktreeCreate: boolean;
+  keybinding: string;
+}
+
 interface ProjectScriptsControlProps {
   environmentId: EnvironmentId;
   projectCwd: string | null;
@@ -190,6 +199,7 @@ export default function ProjectScriptsControl({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const handledOpenRequestIdRef = useRef(0);
+  const pendingCustomDialogDraftRef = useRef<ProjectScriptDialogDraft | null>(null);
   const detectedScriptsQuery = useQuery(
     projectDetectedScriptsQueryOptions({
       environmentId,
@@ -209,6 +219,7 @@ export default function ProjectScriptsControl({
   const detectedScriptWarnings = detectedScriptsQuery.data?.warnings ?? [];
   const hasDetectedScripts = detectedScripts.length > 0;
   const isEditing = editingScriptId !== null;
+  const isPackageScriptsDialog = dialogTab === "packageScripts";
   const dropdownItemClassName =
     "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
 
@@ -223,6 +234,31 @@ export default function ProjectScriptsControl({
     if (!next) return;
     setKeybinding(next);
   };
+
+  const applyDialogDraft = useCallback((draft: ProjectScriptDialogDraft) => {
+    setEditingScriptId(draft.editingScriptId);
+    setName(draft.name);
+    setCommand(draft.command);
+    setIcon(draft.icon);
+    setIconPickerOpen(false);
+    setRunOnWorktreeCreate(draft.runOnWorktreeCreate);
+    setKeybinding(draft.keybinding);
+    setValidationError(null);
+    setDialogTab("custom");
+  }, []);
+
+  const resetDialogDraft = useCallback(() => {
+    setEditingScriptId(null);
+    setDialogTab("custom");
+    setName("");
+    setCommand("");
+    setIcon("play");
+    setIconPickerOpen(false);
+    setRunOnWorktreeCreate(false);
+    setKeybinding("");
+    setValidationError(null);
+    setDeleteConfirmOpen(false);
+  }, []);
 
   const submitAddScript = async (event: FormEvent) => {
     event.preventDefault();
@@ -268,51 +304,73 @@ export default function ProjectScriptsControl({
     }
   };
 
-  const openAddDialog = (tab: ProjectActionsDialogTab = "custom") => {
-    setEditingScriptId(null);
-    setName("");
-    setCommand("");
-    setIcon("play");
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(false);
-    setKeybinding("");
-    setValidationError(null);
-    setDialogTab(tab);
-    setDialogOpen(true);
-  };
+  const openAddDialog = useCallback(
+    (tab: ProjectActionsDialogTab = "custom") => {
+      pendingCustomDialogDraftRef.current = null;
+      if (tab === "custom") {
+        applyDialogDraft({
+          editingScriptId: null,
+          name: "",
+          command: "",
+          icon: "play",
+          runOnWorktreeCreate: false,
+          keybinding: "",
+        });
+      }
+      setDialogTab(tab);
+      setDialogOpen(true);
+    },
+    [applyDialogDraft],
+  );
 
-  const openPackageScriptsDialog = () => {
+  const openPackageScriptsDialog = useCallback(() => {
+    pendingCustomDialogDraftRef.current = null;
     setEditingScriptId(null);
     setValidationError(null);
     setDialogTab("packageScripts");
     setDialogOpen(true);
-  };
+  }, []);
 
-  const openEditDialog = (script: ProjectScript) => {
-    setEditingScriptId(script.id);
-    setName(script.name);
-    setCommand(script.command);
-    setIcon(script.icon);
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(script.runOnWorktreeCreate);
-    setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
-    setValidationError(null);
-    setDialogTab("custom");
-    setDialogOpen(true);
-  };
+  const openEditDialog = useCallback(
+    (script: ProjectScript) => {
+      pendingCustomDialogDraftRef.current = null;
+      applyDialogDraft({
+        editingScriptId: script.id,
+        name: script.name,
+        command: script.command,
+        icon: script.icon,
+        runOnWorktreeCreate: script.runOnWorktreeCreate,
+        keybinding:
+          keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "",
+      });
+      setDialogOpen(true);
+    },
+    [applyDialogDraft, keybindings],
+  );
 
-  const openSaveDetectedScriptDialog = (script: DetectedProjectScript) => {
-    setEditingScriptId(null);
-    setName(script.displayName);
-    setCommand(script.command);
-    setIcon("play");
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(false);
-    setKeybinding("");
-    setValidationError(null);
-    setDialogTab("custom");
-    setDialogOpen(true);
-  };
+  const openSaveDetectedScriptDialog = useCallback(
+    (script: DetectedProjectScript) => {
+      const draft: ProjectScriptDialogDraft = {
+        editingScriptId: null,
+        name: script.displayName,
+        command: script.command,
+        icon: "play",
+        runOnWorktreeCreate: false,
+        keybinding: "",
+      };
+
+      if (dialogOpen && isPackageScriptsDialog) {
+        pendingCustomDialogDraftRef.current = draft;
+        setDialogOpen(false);
+        return;
+      }
+
+      pendingCustomDialogDraftRef.current = null;
+      applyDialogDraft(draft);
+      setDialogOpen(true);
+    },
+    [applyDialogDraft, dialogOpen, isPackageScriptsDialog],
+  );
 
   useEffect(() => {
     if (openRequestId === 0 || handledOpenRequestIdRef.current >= openRequestId) {
@@ -338,7 +396,9 @@ export default function ProjectScriptsControl({
   }, [
     detectedScriptsQuery.isPending,
     hasDetectedScripts,
+    openAddDialog,
     openRequestId,
+    openPackageScriptsDialog,
     preferredOpenTarget,
     projectCwd,
   ]);
@@ -473,46 +533,34 @@ export default function ProjectScriptsControl({
         }}
         onOpenChangeComplete={(open) => {
           if (open) return;
-          setEditingScriptId(null);
-          setDialogTab("custom");
-          setName("");
-          setCommand("");
-          setIcon("play");
-          setRunOnWorktreeCreate(false);
-          setKeybinding("");
-          setValidationError(null);
+          const pendingDraft = pendingCustomDialogDraftRef.current;
+          if (pendingDraft) {
+            pendingCustomDialogDraftRef.current = null;
+            applyDialogDraft(pendingDraft);
+            queueMicrotask(() => setDialogOpen(true));
+            return;
+          }
+          resetDialogDraft();
         }}
         open={dialogOpen}
       >
-        <DialogPopup>
+        <DialogPopup className="duration-120" backdropClassName="duration-120">
           <DialogHeader>
-            <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
+            <DialogTitle>
+              {isPackageScriptsDialog
+                ? "Package Scripts"
+                : isEditing
+                  ? "Edit Action"
+                  : "Add Action"}
+            </DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              {isPackageScriptsDialog
+                ? "Detected package scripts are read from package.json and can be run directly or promoted into saved actions."
+                : "Actions are project-scoped commands you can run from the top bar or keybindings."}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            <div className="mb-4 flex gap-2 rounded-lg border border-border/70 p-1">
-              <Button
-                type="button"
-                variant={dialogTab === "custom" ? "secondary" : "ghost"}
-                size="sm"
-                className="flex-1"
-                onClick={() => setDialogTab("custom")}
-              >
-                Custom Action
-              </Button>
-              <Button
-                type="button"
-                variant={dialogTab === "packageScripts" ? "secondary" : "ghost"}
-                size="sm"
-                className="flex-1"
-                onClick={() => setDialogTab("packageScripts")}
-              >
-                Package Scripts
-              </Button>
-            </div>
-            {dialogTab === "custom" ? (
+            {!isPackageScriptsDialog ? (
               <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
                 <div className="space-y-1.5">
                   <Label htmlFor="script-name">Name</Label>
@@ -602,11 +650,7 @@ export default function ProjectScriptsControl({
                   <p className="text-sm text-muted-foreground">Loading package scripts…</p>
                 ) : null}
                 {detectedScriptsQuery.error ? (
-                  <p className="text-sm text-destructive">
-                    {detectedScriptsQuery.error instanceof Error
-                      ? detectedScriptsQuery.error.message
-                      : "Failed to load package scripts."}
-                  </p>
+                  <p className="text-sm text-destructive">{detectedScriptsQuery.error.message}</p>
                 ) : null}
                 {detectedScriptWarnings.map((warning) => (
                   <p key={warning.message} className="text-xs text-muted-foreground">
@@ -677,7 +721,7 @@ export default function ProjectScriptsControl({
             )}
           </DialogPanel>
           <DialogFooter>
-            {dialogTab === "custom" ? (
+            {!isPackageScriptsDialog ? (
               <>
                 {isEditing && (
                   <Button
