@@ -1,5 +1,12 @@
-import { ServerSettings } from "@t3tools/contracts";
+import {
+  type ClaudeModelOptions,
+  type CodexModelOptions,
+  type OpenCodeModelOptions,
+  ServerSettings,
+  type ServerSettingsPatch,
+} from "@t3tools/contracts";
 import { Schema } from "effect";
+import { deepMerge } from "./Struct";
 import { fromLenientJson } from "./schemaJson";
 
 const ServerSettingsJson = fromLenientJson(ServerSettings);
@@ -37,4 +44,63 @@ export function parsePersistedServerObservabilitySettings(
   } catch {
     return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
   }
+}
+
+function shouldReplaceTextGenerationModelSelection(
+  patch: ServerSettingsPatch["textGenerationModelSelection"] | undefined,
+): boolean {
+  return Boolean(patch && (patch.provider !== undefined || patch.model !== undefined));
+}
+
+/**
+ * Applies a server settings patch while treating textGenerationModelSelection as
+ * replace-on-provider/model updates. This prevents stale nested options from
+ * surviving a reset patch that intentionally omits options.
+ */
+export function applyServerSettingsPatch(
+  current: ServerSettings,
+  patch: ServerSettingsPatch,
+): ServerSettings {
+  const selectionPatch = patch.textGenerationModelSelection;
+  const next = deepMerge(current, patch);
+  if (!selectionPatch || !shouldReplaceTextGenerationModelSelection(selectionPatch)) {
+    return next;
+  }
+
+  const provider = selectionPatch.provider ?? current.textGenerationModelSelection.provider;
+  const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
+
+  const textGenerationModelSelection = (() => {
+    switch (provider) {
+      case "codex": {
+        const options = selectionPatch.options as CodexModelOptions | undefined;
+        return {
+          provider: "codex" as const,
+          model,
+          ...(options ? { options } : {}),
+        };
+      }
+      case "claudeAgent": {
+        const options = selectionPatch.options as ClaudeModelOptions | undefined;
+        return {
+          provider: "claudeAgent" as const,
+          model,
+          ...(options ? { options } : {}),
+        };
+      }
+      case "opencode": {
+        const options = selectionPatch.options as OpenCodeModelOptions | undefined;
+        return {
+          provider: "opencode" as const,
+          model,
+          ...(options ? { options } : {}),
+        };
+      }
+    }
+  })();
+
+  return {
+    ...next,
+    textGenerationModelSelection,
+  };
 }
