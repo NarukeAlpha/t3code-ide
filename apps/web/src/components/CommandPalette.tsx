@@ -95,6 +95,7 @@ import {
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteResults } from "./CommandPaletteResults";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
 import {
   Command,
   CommandDialog,
@@ -546,6 +547,8 @@ function OpenCommandPaletteDialog() {
         projectTitleById,
         sortOrder: settings.sidebarThreadSortOrder,
         icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+        renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
+        renderTrailingContent: (thread) => <ThreadRowTrailingStatus thread={thread} />,
         runThread: async (thread) => {
           await navigate({
             to: "/$environmentId/$threadId",

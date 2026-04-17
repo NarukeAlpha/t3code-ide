@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
-import type { ClaudeModelOptions, CodexModelOptions } from "./model";
-import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
+import type { ClaudeModelOptions, CodexModelOptions } from "./model.ts";
+import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider.ts";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);

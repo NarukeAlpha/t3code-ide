@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 
-import { IsoDateTime, NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
-import { GitHostingProvider } from "./git";
+import { IsoDateTime, NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { GitHostingProvider } from "./git.ts";
 
 export const GitHubWorkspaceAvailabilityKind = Schema.Literals([
   "available",
