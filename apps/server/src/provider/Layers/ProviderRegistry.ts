@@ -9,13 +9,10 @@ import { Effect, Equal, FileSystem, Layer, Path, PubSub, Ref, Stream } from "eff
 import { ServerConfig } from "../../config";
 import { ClaudeProviderLive } from "./ClaudeProvider";
 import { CodexProviderLive } from "./CodexProvider";
-import { OpenCodeProviderLive } from "./OpenCodeProvider";
 import type { ClaudeProviderShape } from "../Services/ClaudeProvider";
 import { ClaudeProvider } from "../Services/ClaudeProvider";
 import type { CodexProviderShape } from "../Services/CodexProvider";
 import { CodexProvider } from "../Services/CodexProvider";
-import type { OpenCodeProviderShape } from "../Services/OpenCodeProvider";
-import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 import {
   hydrateCachedProvider,
@@ -29,14 +26,10 @@ import {
 const loadProviders = (
   codexProvider: CodexProviderShape,
   claudeProvider: ClaudeProviderShape,
-  openCodeProvider: OpenCodeProviderShape,
-): Effect.Effect<ReadonlyArray<ServerProvider>> =>
-  Effect.all(
-    [codexProvider.getSnapshot, claudeProvider.getSnapshot, openCodeProvider.getSnapshot],
-    {
-      concurrency: "unbounded",
-    },
-  );
+): Effect.Effect<readonly [ServerProvider, ServerProvider]> =>
+  Effect.all([codexProvider.getSnapshot, claudeProvider.getSnapshot], {
+    concurrency: "unbounded",
+  });
 
 export const haveProvidersChanged = (
   previousProviders: ReadonlyArray<ServerProvider>,
@@ -48,7 +41,6 @@ export const ProviderRegistryLive = Layer.effect(
   Effect.gen(function* () {
     const codexProvider = yield* CodexProvider;
     const claudeProvider = yield* ClaudeProvider;
-    const openCodeProvider = yield* OpenCodeProvider;
     const config = yield* ServerConfig;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -56,7 +48,7 @@ export const ProviderRegistryLive = Layer.effect(
       PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
       PubSub.shutdown,
     );
-    const fallbackProviders = yield* loadProviders(codexProvider, claudeProvider, openCodeProvider);
+    const fallbackProviders = yield* loadProviders(codexProvider, claudeProvider);
     const cachePathByProvider = new Map(
       PROVIDER_CACHE_IDS.map(
         (provider) =>
@@ -164,10 +156,6 @@ export const ProviderRegistryLive = Layer.effect(
           return yield* claudeProvider.refresh.pipe(
             Effect.flatMap((nextProvider) => syncProvider(nextProvider)),
           );
-        case "opencode":
-          return yield* openCodeProvider.refresh.pipe(
-            Effect.flatMap((nextProvider) => syncProvider(nextProvider)),
-          );
         default:
           return yield* Effect.all(
             [
@@ -175,9 +163,6 @@ export const ProviderRegistryLive = Layer.effect(
                 Effect.flatMap((nextProvider) => syncProvider(nextProvider)),
               ),
               claudeProvider.refresh.pipe(
-                Effect.flatMap((nextProvider) => syncProvider(nextProvider)),
-              ),
-              openCodeProvider.refresh.pipe(
                 Effect.flatMap((nextProvider) => syncProvider(nextProvider)),
               ),
             ],
@@ -195,9 +180,6 @@ export const ProviderRegistryLive = Layer.effect(
     yield* Stream.runForEach(claudeProvider.streamChanges, (provider) =>
       syncProvider(provider),
     ).pipe(Effect.forkScoped);
-    yield* Stream.runForEach(openCodeProvider.streamChanges, (provider) =>
-      syncProvider(provider),
-    ).pipe(Effect.forkScoped);
 
     return {
       getProviders: Ref.get(providersRef),
@@ -211,8 +193,4 @@ export const ProviderRegistryLive = Layer.effect(
       },
     } satisfies ProviderRegistryShape;
   }),
-).pipe(
-  Layer.provideMerge(CodexProviderLive),
-  Layer.provideMerge(ClaudeProviderLive),
-  Layer.provideMerge(OpenCodeProviderLive),
-);
+).pipe(Layer.provideMerge(CodexProviderLive), Layer.provideMerge(ClaudeProviderLive));

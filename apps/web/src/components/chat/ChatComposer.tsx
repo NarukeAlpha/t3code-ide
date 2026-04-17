@@ -48,7 +48,6 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
-import { createModelSelection } from "../../modelSelection";
 import {
   type TerminalContextDraft,
   type TerminalContextSelection,
@@ -590,7 +589,11 @@ export const ChatComposer = memo(
     const selectedPromptEffort = composerProviderState.promptEffort;
     const selectedModelOptionsForDispatch = composerProviderState.modelOptionsForDispatch;
     const selectedModelSelection = useMemo<ModelSelection>(
-      () => createModelSelection(selectedProvider, selectedModel, selectedModelOptionsForDispatch),
+      () => ({
+        provider: selectedProvider,
+        model: selectedModel,
+        ...(selectedModelOptionsForDispatch ? { options: selectedModelOptionsForDispatch } : {}),
+      }),
       [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
     );
     const selectedModelForPicker = selectedModel;
@@ -601,8 +604,6 @@ export const ChatComposer = memo(
         codex: providerStatuses.find((provider) => provider.provider === "codex")?.models ?? [],
         claudeAgent:
           providerStatuses.find((provider) => provider.provider === "claudeAgent")?.models ?? [],
-        opencode:
-          providerStatuses.find((provider) => provider.provider === "opencode")?.models ?? [],
       }),
       [providerStatuses],
     );

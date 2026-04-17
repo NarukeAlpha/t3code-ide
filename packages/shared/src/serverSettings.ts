@@ -1,10 +1,4 @@
-import {
-  type ClaudeModelOptions,
-  type CodexModelOptions,
-  type OpenCodeModelOptions,
-  ServerSettings,
-  type ServerSettingsPatch,
-} from "@t3tools/contracts";
+import { ServerSettings, type ServerSettingsPatch } from "@t3tools/contracts";
 import { Schema } from "effect";
 import { deepMerge } from "./Struct";
 import { fromLenientJson } from "./schemaJson";
@@ -67,40 +61,12 @@ export function applyServerSettingsPatch(
     return next;
   }
 
-  const provider = selectionPatch.provider ?? current.textGenerationModelSelection.provider;
-  const model = selectionPatch.model ?? current.textGenerationModelSelection.model;
-
-  const textGenerationModelSelection = (() => {
-    switch (provider) {
-      case "codex": {
-        const options = selectionPatch.options as CodexModelOptions | undefined;
-        return {
-          provider: "codex" as const,
-          model,
-          ...(options ? { options } : {}),
-        };
-      }
-      case "claudeAgent": {
-        const options = selectionPatch.options as ClaudeModelOptions | undefined;
-        return {
-          provider: "claudeAgent" as const,
-          model,
-          ...(options ? { options } : {}),
-        };
-      }
-      case "opencode": {
-        const options = selectionPatch.options as OpenCodeModelOptions | undefined;
-        return {
-          provider: "opencode" as const,
-          model,
-          ...(options ? { options } : {}),
-        };
-      }
-    }
-  })();
-
   return {
     ...next,
-    textGenerationModelSelection,
+    textGenerationModelSelection: {
+      provider: selectionPatch.provider ?? current.textGenerationModelSelection.provider,
+      model: selectionPatch.model ?? current.textGenerationModelSelection.model,
+      ...(selectionPatch.options ? { options: selectionPatch.options } : {}),
+    },
   };
 }
