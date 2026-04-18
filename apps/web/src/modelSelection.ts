@@ -2,7 +2,6 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   type ModelSelection,
   type ProviderKind,
-  type ProviderModelOptions,
   type ServerProvider,
 } from "@t3tools/contracts";
 import {
@@ -67,27 +66,6 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
 };
 
 export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
-
-export function createModelSelection<P extends ProviderKind>(
-  provider: P,
-  model: string,
-  options?: ProviderModelOptions[P],
-): Extract<ModelSelection, { provider: P }> {
-  switch (provider) {
-    case "codex":
-      return (
-        options
-          ? { provider, model, options: options as ProviderModelOptions["codex"] }
-          : { provider, model }
-      ) as Extract<ModelSelection, { provider: P }>;
-    case "claudeAgent":
-      return (
-        options
-          ? { provider, model, options: options as ProviderModelOptions["claudeAgent"] }
-          : { provider, model }
-      ) as Extract<ModelSelection, { provider: P }>;
-  }
-}
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
