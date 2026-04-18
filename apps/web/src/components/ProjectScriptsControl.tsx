@@ -42,6 +42,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -170,6 +171,13 @@ function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | n
   }
   parts.push(keyToken);
   return parts.join("+");
+}
+
+function detectedScriptActionName(script: DetectedProjectScript): string {
+  if (script.source === "package_json") {
+    return script.displayName;
+  }
+  return `${script.badgeLabel} ${script.displayName}`;
 }
 
 export default function ProjectScriptsControl({
@@ -352,7 +360,7 @@ export default function ProjectScriptsControl({
     (script: DetectedProjectScript) => {
       const draft: ProjectScriptDialogDraft = {
         editingScriptId: null,
-        name: script.displayName,
+        name: detectedScriptActionName(script),
         command: script.command,
         icon: "play",
         runOnWorktreeCreate: false,
@@ -555,7 +563,7 @@ export default function ProjectScriptsControl({
             </DialogTitle>
             <DialogDescription>
               {isPackageScriptsDialog
-                ? "Detected package scripts are read from package.json and can be run directly or promoted into saved actions."
+                ? "Detected scripts are loaded from supported project files and can be run directly or promoted into saved actions."
                 : "Actions are project-scoped commands you can run from the top bar or keybindings."}
             </DialogDescription>
           </DialogHeader>
@@ -647,7 +655,7 @@ export default function ProjectScriptsControl({
             ) : (
               <div className="space-y-3">
                 {detectedScriptsQuery.isPending ? (
-                  <p className="text-sm text-muted-foreground">Loading package scripts…</p>
+                  <p className="text-sm text-muted-foreground">Loading detected scripts…</p>
                 ) : null}
                 {detectedScriptsQuery.error ? (
                   <p className="text-sm text-destructive">{detectedScriptsQuery.error.message}</p>
@@ -674,9 +682,12 @@ export default function ProjectScriptsControl({
                               <p className="font-medium text-sm text-foreground">
                                 {script.displayName}
                               </p>
-                              <p className="text-muted-foreground text-xs">
-                                {script.packageManager} · {script.scriptCommand}
-                              </p>
+                              <div className="mt-1 flex min-w-0 items-center gap-2 text-muted-foreground text-xs">
+                                <Badge variant="outline" size="sm">
+                                  {script.badgeLabel}
+                                </Badge>
+                                <span className="truncate">{script.detail}</span>
+                              </div>
                             </div>
                             <div className="flex shrink-0 gap-2">
                               <Button
@@ -714,7 +725,7 @@ export default function ProjectScriptsControl({
                 !detectedScriptsQuery.error &&
                 detectedScripts.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No runnable package scripts were detected for this project.
+                    No detected scripts were found for this project.
                   </p>
                 ) : null}
               </div>

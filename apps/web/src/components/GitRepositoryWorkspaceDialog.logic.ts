@@ -1,67 +1,44 @@
-import type { GitGraphNode } from "@t3tools/contracts";
+import type {
+  GitHubWorkspacePullRequest,
+  GitHubWorkspaceSnapshot,
+  GitRecentGraphResult,
+} from "@t3tools/contracts";
 
-export type GraphRow = {
-  readonly node: GitGraphNode;
-  readonly lanesBefore: ReadonlyArray<string>;
-  readonly lanesAfter: ReadonlyArray<string>;
-  readonly nodeLane: number;
-  readonly hadExistingLane: boolean;
-};
+export function workspacePullRequestKey(input: { repository: string; number: number }): string {
+  return `${input.repository}#${input.number}`;
+}
 
-export function buildGraphRows(nodes: ReadonlyArray<GitGraphNode>) {
-  let lanes: string[] = [];
-  let maxLaneCount = 1;
-  const rows: GraphRow[] = [];
-
-  for (const node of nodes) {
-    const existingLane = lanes.indexOf(node.oid);
-    const lanesBefore = existingLane === -1 ? [...lanes, node.oid] : [...lanes];
-    const nodeLane = existingLane === -1 ? lanes.length : existingLane;
-    const lanesAfter = [...lanesBefore];
-
-    if (node.parentOids.length === 0) {
-      lanesAfter.splice(nodeLane, 1);
-    } else {
-      const firstParentOid = node.parentOids[0]!;
-      const additionalParentOids = node.parentOids.slice(1);
-      const firstParentLane = lanesAfter.indexOf(firstParentOid);
-      let replacementLane = nodeLane;
-
-      if (firstParentLane !== -1) {
-        lanesAfter.splice(firstParentLane, 1);
-        if (firstParentLane < replacementLane) {
-          replacementLane -= 1;
-        }
-      }
-      lanesAfter[replacementLane] = firstParentOid;
-
-      let insertAt = replacementLane + 1;
-      for (const parentOid of additionalParentOids) {
-        const existingParentLane = lanesAfter.indexOf(parentOid);
-        if (existingParentLane !== -1) {
-          lanesAfter.splice(existingParentLane, 1);
-          if (existingParentLane < insertAt) {
-            insertAt -= 1;
-          }
-        }
-        lanesAfter.splice(insertAt, 0, parentOid);
-        insertAt += 1;
-      }
-    }
-
-    maxLaneCount = Math.max(maxLaneCount, lanesBefore.length, lanesAfter.length, nodeLane + 1);
-    rows.push({
-      node,
-      lanesBefore,
-      lanesAfter,
-      nodeLane,
-      hadExistingLane: existingLane !== -1,
-    });
-    lanes = lanesAfter;
+export function resolveActiveWorkspacePullRequest(
+  workspace: GitHubWorkspaceSnapshot | null | undefined,
+  selectedKey: string | null,
+): GitHubWorkspacePullRequest | null {
+  if (!workspace || workspace.pullRequests.length === 0) {
+    return null;
   }
 
-  return {
-    rows,
-    maxLaneCount,
-  };
+  if (selectedKey) {
+    const selected = workspace.pullRequests.find(
+      (pullRequest) => workspacePullRequestKey(pullRequest) === selectedKey,
+    );
+    if (selected) {
+      return selected;
+    }
+  }
+
+  if (workspace.activePullRequest) {
+    const active = workspace.pullRequests.find(
+      (pullRequest) =>
+        pullRequest.repository === workspace.activePullRequest?.repository &&
+        pullRequest.number === workspace.activePullRequest?.number,
+    );
+    if (active) {
+      return active;
+    }
+  }
+
+  return workspace.pullRequests[0] ?? null;
+}
+
+export function countRecentGraphCommits(graph: GitRecentGraphResult): number {
+  return graph.rows.reduce((count, row) => count + (row.commit ? 1 : 0), 0);
 }

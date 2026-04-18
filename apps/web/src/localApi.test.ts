@@ -50,6 +50,7 @@ const rpcClientMock = {
   projects: {
     searchEntries: vi.fn(),
     writeFile: vi.fn(),
+    listDetectedScripts: vi.fn(),
   },
   filesystem: {
     browse: vi.fn(),
@@ -70,8 +71,14 @@ const rpcClientMock = {
     createBranch: vi.fn(),
     checkout: vi.fn(),
     init: vi.fn(),
+    getRecentGraph: vi.fn(),
     resolvePullRequest: vi.fn(),
     preparePullRequestThread: vi.fn(),
+  },
+  github: {
+    getWorkspace: vi.fn(),
+    addPullRequestComment: vi.fn(),
+    submitPullRequestReview: vi.fn(),
   },
   server: {
     getConfig: vi.fn(),

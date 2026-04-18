@@ -25,9 +25,35 @@ const LOCKFILE_CANDIDATES: ReadonlyArray<{
   { fileName: "npm-shrinkwrap.json", packageManager: "npm" },
 ];
 
+const STATIC_MARKER_FILES = [
+  "package.json",
+  "build.zig",
+  "gradlew",
+  "build.gradle",
+  "build.gradle.kts",
+  "go.mod",
+  "Cargo.toml",
+  ".cargo/config.toml",
+] as const;
+
+const DOTNET_EXTENSION_PRIORITY: Readonly<Record<string, number>> = {
+  ".sln": 0,
+  ".csproj": 1,
+};
+
 interface CachedDetectedScripts {
   readonly signature: string;
   readonly result: ListDetectedProjectScriptsResult;
+}
+
+interface PackageJsonDetection {
+  readonly scripts: ReadonlyArray<DetectedProjectScript>;
+  readonly warnings: ReadonlyArray<ProjectDetectedScriptWarning>;
+}
+
+interface StaticDetectedScriptDefinition {
+  readonly displayName: string;
+  readonly command: string;
 }
 
 function stringifySignatureValue(value: unknown): string {
@@ -66,20 +92,22 @@ function commandForPackageManager(
 }
 
 function toDetectedScript(input: {
-  readonly packageManager: ProjectPackageManager;
-  readonly scriptName: string;
-  readonly scriptCommand: string;
-  readonly manifestPath: string;
+  readonly id: string;
+  readonly source: DetectedProjectScript["source"];
+  readonly displayName: string;
+  readonly badgeLabel: string;
+  readonly detail: string;
+  readonly command: string;
+  readonly originPath: string;
 }): DetectedProjectScript {
   return {
-    id: `package_json:${input.scriptName}`,
-    source: "package_json",
-    packageManager: input.packageManager,
-    scriptName: input.scriptName,
-    displayName: input.scriptName,
-    command: commandForPackageManager(input.packageManager, input.scriptName),
-    scriptCommand: input.scriptCommand.trim(),
-    manifestPath: input.manifestPath,
+    id: input.id,
+    source: input.source,
+    displayName: input.displayName,
+    badgeLabel: input.badgeLabel,
+    detail: input.detail,
+    command: input.command,
+    originPath: input.originPath,
   };
 }
 
@@ -90,6 +118,33 @@ function toDetectedScriptsError(message: string, cause?: unknown): ProjectDetect
   });
 }
 
+function toStaticDetectedScriptId(
+  source: Exclude<DetectedProjectScript["source"], "package_json">,
+  displayName: string,
+): string {
+  return `${source}:${displayName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`;
+}
+
+function toStaticDetectedScripts(input: {
+  readonly source: Exclude<DetectedProjectScript["source"], "package_json">;
+  readonly badgeLabel: string;
+  readonly detail: string;
+  readonly originPath: string;
+  readonly definitions: ReadonlyArray<StaticDetectedScriptDefinition>;
+}): ReadonlyArray<DetectedProjectScript> {
+  return input.definitions.map((definition) =>
+    toDetectedScript({
+      id: toStaticDetectedScriptId(input.source, definition.displayName),
+      source: input.source,
+      displayName: definition.displayName,
+      badgeLabel: input.badgeLabel,
+      detail: input.detail,
+      command: definition.command,
+      originPath: input.originPath,
+    }),
+  );
+}
+
 export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -98,20 +153,53 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
   const safeStat = (targetPath: string) =>
     fileSystem.stat(targetPath).pipe(Effect.catch(() => Effect.succeed(null)));
 
+  const safeReadDirectory = (targetPath: string) =>
+    fileSystem
+      .readDirectory(targetPath, { recursive: false })
+      .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
+
+  const readDotnetRootEntryNames = (cwd: string) =>
+    safeReadDirectory(cwd).pipe(
+      Effect.map((entries) =>
+        entries
+          .filter((name) => {
+            const extension = path.extname(name).toLowerCase();
+            return extension in DOTNET_EXTENSION_PRIORITY;
+          })
+          .sort((left, right) => {
+            const leftPriority = DOTNET_EXTENSION_PRIORITY[path.extname(left).toLowerCase()] ?? 99;
+            const rightPriority =
+              DOTNET_EXTENSION_PRIORITY[path.extname(right).toLowerCase()] ?? 99;
+            if (leftPriority !== rightPriority) {
+              return leftPriority - rightPriority;
+            }
+            return left.localeCompare(right);
+          }),
+      ),
+    );
+
   const readStatsSignature = Effect.fn("ProjectDetectedScriptCatalog.readStatsSignature")(
-    function* (
-      cwd: string,
-      manifestPath: string,
-    ): Effect.fn.Return<{
+    function* (cwd: string): Effect.fn.Return<{
       readonly signature: string;
       readonly detectedPackageManager: ProjectPackageManager | null;
+      readonly dotnetRootEntries: ReadonlyArray<string>;
     }> {
-      const signatureParts = [`package.json:${manifestPath}`];
-      const manifestStat = yield* safeStat(manifestPath);
-      if (manifestStat) {
-        signatureParts.push(`package.json.stat:${stringifySignatureValue(manifestStat)}`);
+      const signatureParts = [`cwd:${cwd}`];
+      const cwdStat = yield* safeStat(cwd);
+      if (cwdStat) {
+        signatureParts.push(`cwd.stat:${stringifySignatureValue(cwdStat)}`);
       }
+
       let detectedPackageManager: ProjectPackageManager | null = null;
+
+      for (const markerFile of STATIC_MARKER_FILES) {
+        const markerPath = path.join(cwd, markerFile);
+        const stats = yield* safeStat(markerPath);
+        if (!stats || stats.type !== "File") {
+          continue;
+        }
+        signatureParts.push(`${markerFile}:${stringifySignatureValue(stats)}`);
+      }
 
       for (const candidate of LOCKFILE_CANDIDATES) {
         const candidatePath = path.join(cwd, candidate.fileName);
@@ -119,40 +207,40 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
         if (!stats || stats.type !== "File") {
           continue;
         }
-        signatureParts.push(`${candidate.fileName}:${stringifySignatureValue(stats)}`);
         detectedPackageManager ??= candidate.packageManager;
+      }
+
+      const dotnetRootEntries = yield* readDotnetRootEntryNames(cwd);
+      for (const entryName of dotnetRootEntries) {
+        const entryPath = path.join(cwd, entryName);
+        const stats = yield* safeStat(entryPath);
+        if (!stats || stats.type !== "File") {
+          continue;
+        }
+        signatureParts.push(`dotnet:${entryName}:${stringifySignatureValue(stats)}`);
       }
 
       return {
         signature: signatureParts.join("|"),
         detectedPackageManager,
+        dotnetRootEntries,
       } as const;
     },
   );
 
-  const list: ProjectDetectedScriptCatalogShape["list"] = Effect.fn(
-    "ProjectDetectedScriptCatalog.list",
-  )(function* (input): Effect.fn.Return<
-    ListDetectedProjectScriptsResult,
-    ProjectDetectedScriptsError
-  > {
-    const manifestPath = path.join(input.cwd, "package.json");
+  const detectPackageJsonScripts = Effect.fn(
+    "ProjectDetectedScriptCatalog.detectPackageJsonScripts",
+  )(function* (
+    cwd: string,
+    detectedPackageManager: ProjectPackageManager | null,
+  ): Effect.fn.Return<PackageJsonDetection, ProjectDetectedScriptsError> {
+    const manifestPath = path.join(cwd, "package.json");
     const manifestStats = yield* safeStat(manifestPath);
     if (!manifestStats || manifestStats.type !== "File") {
       return {
         scripts: [],
         warnings: [],
-      } satisfies ListDetectedProjectScriptsResult;
-    }
-
-    const { signature, detectedPackageManager } = yield* readStatsSignature(
-      input.cwd,
-      manifestPath,
-    );
-    const cached = yield* Ref.get(cacheRef);
-    const cacheHit = cached.get(manifestPath);
-    if (cacheHit?.signature === signature) {
-      return cacheHit.result;
+      } satisfies PackageJsonDetection;
     }
 
     const rawManifest = yield* fileSystem
@@ -169,20 +257,20 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
         catch: (cause) => toDetectedScriptsError(`Failed to parse ${manifestPath}.`, cause),
       }),
     );
+
     if (Exit.isFailure(parsedManifestResult)) {
-      const result = {
+      return {
         scripts: [],
         warnings: [
-          { message: "package.json could not be parsed. Package scripts are unavailable." },
+          {
+            message:
+              "package.json could not be parsed. JavaScript package scripts are unavailable.",
+          },
         ],
-      } satisfies ListDetectedProjectScriptsResult;
-      yield* Ref.update(cacheRef, (current) =>
-        new Map(current).set(manifestPath, { signature, result }),
-      );
-      return result;
+      } satisfies PackageJsonDetection;
     }
-    const parsedManifest = parsedManifestResult.value;
 
+    const parsedManifest = parsedManifestResult.value;
     const manifestRecord =
       parsedManifest && typeof parsedManifest === "object"
         ? (parsedManifest as Record<string, unknown>)
@@ -215,28 +303,184 @@ export const makeProjectDetectedScriptCatalog = Effect.gen(function* () {
           });
           continue;
         }
+
         const trimmedName = scriptName.trim();
         const trimmedCommand = scriptCommand.trim();
         if (trimmedName.length === 0 || trimmedCommand.length === 0) {
           continue;
         }
+
         scripts.push(
           toDetectedScript({
-            packageManager,
-            scriptName: trimmedName,
-            scriptCommand: trimmedCommand,
-            manifestPath,
+            id: `package_json:${trimmedName}`,
+            source: "package_json",
+            displayName: trimmedName,
+            badgeLabel: "package.json",
+            detail: `${packageManager} · ${trimmedCommand}`,
+            command: commandForPackageManager(packageManager, trimmedName),
+            originPath: manifestPath,
           }),
         );
       }
     }
 
-    const result = {
+    return {
       scripts,
       warnings,
+    } satisfies PackageJsonDetection;
+  });
+
+  const detectStaticScripts = Effect.fn("ProjectDetectedScriptCatalog.detectStaticScripts")(
+    function* (
+      cwd: string,
+      dotnetRootEntries: ReadonlyArray<string>,
+    ): Effect.fn.Return<ReadonlyArray<DetectedProjectScript>> {
+      const zigOriginPath = path.join(cwd, "build.zig");
+      const zigStats = yield* safeStat(zigOriginPath);
+
+      const gradleWrapperPath = path.join(cwd, "gradlew");
+      const gradleKtsPath = path.join(cwd, "build.gradle.kts");
+      const gradleGroovyPath = path.join(cwd, "build.gradle");
+      const [gradleWrapperStats, gradleKtsStats, gradleGroovyStats] = yield* Effect.all([
+        safeStat(gradleWrapperPath),
+        safeStat(gradleKtsPath),
+        safeStat(gradleGroovyPath),
+      ]);
+
+      const goOriginPath = path.join(cwd, "go.mod");
+      const goStats = yield* safeStat(goOriginPath);
+
+      const cargoManifestPath = path.join(cwd, "Cargo.toml");
+      const cargoConfigPath = path.join(cwd, ".cargo", "config.toml");
+      const [cargoManifestStats, cargoConfigStats] = yield* Effect.all([
+        safeStat(cargoManifestPath),
+        safeStat(cargoConfigPath),
+      ]);
+
+      const scripts: DetectedProjectScript[] = [];
+
+      if (zigStats?.type === "File") {
+        scripts.push(
+          ...toStaticDetectedScripts({
+            source: "zig",
+            badgeLabel: "Zig",
+            detail: path.basename(zigOriginPath),
+            originPath: zigOriginPath,
+            definitions: [{ displayName: "Build", command: "zig build" }],
+          }),
+        );
+      }
+
+      const gradleExecutable = gradleWrapperStats?.type === "File" ? "./gradlew" : "gradle";
+      const gradleOriginPath =
+        gradleKtsStats?.type === "File"
+          ? gradleKtsPath
+          : gradleGroovyStats?.type === "File"
+            ? gradleGroovyPath
+            : gradleWrapperStats?.type === "File"
+              ? gradleWrapperPath
+              : null;
+
+      if (gradleOriginPath) {
+        scripts.push(
+          ...toStaticDetectedScripts({
+            source: "gradle",
+            badgeLabel: "Gradle",
+            detail: path.basename(gradleOriginPath),
+            originPath: gradleOriginPath,
+            definitions: [
+              { displayName: "Build", command: `${gradleExecutable} build` },
+              { displayName: "Test", command: `${gradleExecutable} test` },
+            ],
+          }),
+        );
+      }
+
+      if (goStats?.type === "File") {
+        scripts.push(
+          ...toStaticDetectedScripts({
+            source: "go",
+            badgeLabel: "Go",
+            detail: path.basename(goOriginPath),
+            originPath: goOriginPath,
+            definitions: [
+              { displayName: "Build", command: "go build" },
+              { displayName: "Run", command: "go run ." },
+              { displayName: "Test", command: "go test" },
+            ],
+          }),
+        );
+      }
+
+      const cargoOriginPath =
+        cargoManifestStats?.type === "File"
+          ? cargoManifestPath
+          : cargoConfigStats?.type === "File"
+            ? cargoConfigPath
+            : null;
+
+      if (cargoOriginPath) {
+        scripts.push(
+          ...toStaticDetectedScripts({
+            source: "rust",
+            badgeLabel: "Rust",
+            detail: path.relative(cwd, cargoOriginPath),
+            originPath: cargoOriginPath,
+            definitions: [
+              { displayName: "Build", command: "cargo build" },
+              { displayName: "Test", command: "cargo test" },
+            ],
+          }),
+        );
+      }
+
+      const dotnetOriginName = dotnetRootEntries[0];
+      if (dotnetOriginName) {
+        const dotnetOriginPath = path.join(cwd, dotnetOriginName);
+        scripts.push(
+          ...toStaticDetectedScripts({
+            source: "dotnet",
+            badgeLabel: ".NET",
+            detail: dotnetOriginName,
+            originPath: dotnetOriginPath,
+            definitions: [
+              { displayName: "Build", command: "dotnet build" },
+              { displayName: "Test", command: "dotnet test" },
+              { displayName: "MSBuild", command: "dotnet msbuild" },
+            ],
+          }),
+        );
+      }
+
+      return scripts;
+    },
+  );
+
+  const list: ProjectDetectedScriptCatalogShape["list"] = Effect.fn(
+    "ProjectDetectedScriptCatalog.list",
+  )(function* (input): Effect.fn.Return<
+    ListDetectedProjectScriptsResult,
+    ProjectDetectedScriptsError
+  > {
+    const { signature, detectedPackageManager, dotnetRootEntries } = yield* readStatsSignature(
+      input.cwd,
+    );
+    const cached = yield* Ref.get(cacheRef);
+    const cacheHit = cached.get(input.cwd);
+    if (cacheHit?.signature === signature) {
+      return cacheHit.result;
+    }
+
+    const packageJsonDetection = yield* detectPackageJsonScripts(input.cwd, detectedPackageManager);
+    const staticScripts = yield* detectStaticScripts(input.cwd, dotnetRootEntries);
+
+    const result = {
+      scripts: [...packageJsonDetection.scripts, ...staticScripts],
+      warnings: [...packageJsonDetection.warnings],
     } satisfies ListDetectedProjectScriptsResult;
+
     yield* Ref.update(cacheRef, (current) =>
-      new Map(current).set(manifestPath, { signature, result }),
+      new Map(current).set(input.cwd, { signature, result }),
     );
     return result;
   });

@@ -58,18 +58,24 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
 export const ProjectPackageManager = Schema.Literals(["bun", "pnpm", "yarn", "npm"]);
 export type ProjectPackageManager = typeof ProjectPackageManager.Type;
 
-export const DetectedProjectScriptSource = Schema.Literal("package_json");
+export const DetectedProjectScriptSource = Schema.Literals([
+  "package_json",
+  "zig",
+  "gradle",
+  "go",
+  "rust",
+  "dotnet",
+]);
 export type DetectedProjectScriptSource = typeof DetectedProjectScriptSource.Type;
 
 export const DetectedProjectScript = Schema.Struct({
   id: TrimmedNonEmptyString,
   source: DetectedProjectScriptSource,
-  packageManager: ProjectPackageManager,
-  scriptName: TrimmedNonEmptyString,
   displayName: TrimmedNonEmptyString,
+  badgeLabel: TrimmedNonEmptyString,
+  detail: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
-  scriptCommand: TrimmedNonEmptyString,
-  manifestPath: TrimmedNonEmptyString,
+  originPath: TrimmedNonEmptyString,
 });
 export type DetectedProjectScript = typeof DetectedProjectScript.Type;
 

@@ -459,7 +459,8 @@ const buildAppUnderTest = (options?: {
         Layer.mock(GitWorkspace)({
           getRecentGraph: () =>
             Effect.succeed({
-              nodes: [],
+              rows: [],
+              maxColumns: 0,
               refs: [],
               topology: {
                 headOid: null,
@@ -475,9 +476,8 @@ const buildAppUnderTest = (options?: {
                 kind: "available" as const,
                 message: "GitHub workspace is available.",
               },
-              pullRequest: null,
-              checks: [],
-              runs: [],
+              pullRequests: [],
+              activePullRequest: null,
               fetchedAt: new Date().toISOString(),
             }),
           addPullRequestComment: () =>

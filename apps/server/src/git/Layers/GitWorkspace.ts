@@ -1,7 +1,6 @@
 import { Cause, Effect, Exit, Layer, Path } from "effect";
 
 import type {
-  GitGraphNode,
   GitGraphRef,
   GitHubActor,
   GitHubCheckBucket,
@@ -16,27 +15,15 @@ import type {
 } from "@t3tools/contracts";
 import type { GitCommandError } from "@t3tools/contracts";
 import { GitHubWorkspaceError } from "@t3tools/contracts";
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 
+import { GIT_LOG_GRAPH_FORMAT, parseGitLogGraphRows } from "../graphRows.ts";
+import { discoverPullRequestsForBranch } from "../pullRequestDiscovery.ts";
 import { GitCore } from "../Services/GitCore.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 import { GitManager } from "../Services/GitManager.ts";
 import { GitWorkspace, type GitWorkspaceShape } from "../Services/GitWorkspace.ts";
 
 const DEFAULT_GRAPH_LIMIT = 200;
-
-type GraphCommitMetadata = {
-  readonly oid: string;
-  readonly shortOid: string;
-  readonly authoredAt: string;
-  readonly authorName: string;
-  readonly subject: string;
-};
-
-type GraphCommitLine = {
-  readonly oid: string;
-  readonly parentOids: ReadonlyArray<string>;
-};
 
 function gitHubWorkspaceError(operation: string, detail: string, cause?: unknown) {
   return new GitHubWorkspaceError({
@@ -128,48 +115,6 @@ function parseJson(
     try: () => JSON.parse(raw) as unknown,
     catch: (cause) => gitHubWorkspaceError(operation, detail, cause),
   });
-}
-
-function parseGraphCommitLine(line: string): GraphCommitLine | null {
-  const trimmed = line.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  const parts = trimmed.split(/\s+/).filter((part) => part.length > 0);
-  const oid = parts[0]?.trim();
-  if (!oid) {
-    return null;
-  }
-  return {
-    oid,
-    parentOids: parts.slice(1),
-  };
-}
-
-function parseCommitMetadataLines(stdout: string): Map<string, GraphCommitMetadata> {
-  const metadata = new Map<string, GraphCommitMetadata>();
-  for (const line of stdout.split("\n")) {
-    if (line.length === 0) {
-      continue;
-    }
-    const [oid, shortOid, authoredAtEpoch, authorName, subject] = line.split("\u0000");
-    const commitOid = trimToNull(oid);
-    if (!commitOid) {
-      continue;
-    }
-    const authoredAtSeconds = Number.parseInt(authoredAtEpoch ?? "", 10);
-    const authoredAt = Number.isFinite(authoredAtSeconds)
-      ? new Date(authoredAtSeconds * 1000).toISOString()
-      : new Date(0).toISOString();
-    metadata.set(commitOid, {
-      oid: commitOid,
-      shortOid: ensureNonEmpty(shortOid, commitOid.slice(0, 7)),
-      authoredAt,
-      authorName: ensureNonEmpty(authorName, "Unknown author"),
-      subject: ensureNonEmpty(subject, "(no subject)"),
-    });
-  }
-  return metadata;
 }
 
 function parseGraphRefs(stdout: string): ReadonlyArray<{
@@ -353,50 +298,192 @@ export const makeGitWorkspace = Effect.gen(function* () {
       maxOutputBytes: 512 * 1024,
     });
 
-  const resolveRepositoryNameWithOwner = Effect.fn("GitWorkspace.resolveRepositoryNameWithOwner")(
-    function* (
-      cwd: string,
-      branch: string | null,
-    ): Effect.fn.Return<string | null, GitHubWorkspaceError> {
-      const preferredRemote =
-        branch === null
-          ? "origin"
-          : ((yield* gitCore
-              .readConfigValue(cwd, `branch.${branch}.remote`)
-              .pipe(Effect.catch(() => Effect.succeed(null)))) ?? "origin");
-      const remoteUrl =
-        (yield* gitCore
-          .readConfigValue(cwd, `remote.${preferredRemote}.url`)
-          .pipe(Effect.catch(() => Effect.succeed(null)))) ??
-        (yield* gitCore
-          .readConfigValue(cwd, "remote.origin.url")
-          .pipe(Effect.catch(() => Effect.succeed(null))));
-      const parsed = parseGitHubRepositoryNameWithOwnerFromRemoteUrl(remoteUrl);
-      if (parsed) {
-        return parsed;
-      }
+  const loadWorkflowRuns = Effect.fn("GitWorkspace.loadWorkflowRuns")(function* (
+    cwd: string,
+    repositoryNameWithOwner: string,
+    headSha: string,
+  ): Effect.fn.Return<ReadonlyArray<GitHubWorkflowRun>, GitHubWorkspaceError> {
+    if (headSha === "unknown") {
+      return [];
+    }
 
-      const repoView = yield* gitHubCli
+    const runsResult = yield* gitHubCli
+      .execute({
+        cwd,
+        args: [
+          "api",
+          `repos/${repositoryNameWithOwner}/actions/runs?head_sha=${encodeURIComponent(
+            headSha,
+          )}&per_page=10`,
+        ],
+        timeoutMs: 20_000,
+      })
+      .pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)));
+    const runsRaw = yield* parseJson(
+      "getWorkspace",
+      "GitHub CLI returned invalid workflow runs JSON.",
+      runsResult.stdout,
+    );
+    const runEntries =
+      runsRaw && typeof runsRaw === "object" && Array.isArray((runsRaw as any).workflow_runs)
+        ? ((runsRaw as any).workflow_runs as ReadonlyArray<unknown>)
+        : [];
+    return yield* Effect.forEach(
+      runEntries,
+      (entry) =>
+        Effect.gen(function* () {
+          const runRecord =
+            entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+          const runId = Number(runRecord.id);
+          if (!Number.isFinite(runId)) {
+            return null;
+          }
+          const jobsResult = yield* gitHubCli
+            .execute({
+              cwd,
+              args: [
+                "api",
+                `repos/${repositoryNameWithOwner}/actions/runs/${runId}/jobs?per_page=50`,
+              ],
+              timeoutMs: 20_000,
+            })
+            .pipe(
+              Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)),
+            );
+          const jobsRaw = yield* parseJson(
+            "getWorkspace",
+            "GitHub CLI returned invalid workflow jobs JSON.",
+            jobsResult.stdout,
+          );
+          const jobs =
+            jobsRaw && typeof jobsRaw === "object" && Array.isArray((jobsRaw as any).jobs)
+              ? ((jobsRaw as any).jobs as ReadonlyArray<unknown>)
+                  .map(normalizeWorkflowJob)
+                  .filter((value): value is GitHubWorkflowJob => value !== null)
+              : [];
+          return normalizeWorkflowRun(entry, jobs);
+        }),
+      { concurrency: 3 },
+    ).pipe(
+      Effect.map((values) => values.filter((value): value is GitHubWorkflowRun => value !== null)),
+    );
+  });
+
+  const loadWorkspacePullRequest = Effect.fn("GitWorkspace.loadWorkspacePullRequest")(
+    function* (input: {
+      cwd: string;
+      repository: string;
+      number: number;
+      title: string;
+      url: string;
+      baseBranch: string;
+      headBranch: string;
+    }) {
+      const prViewResult = yield* gitHubCli
         .execute({
-          cwd,
-          args: ["repo", "view", "--json", "nameWithOwner"],
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "view",
+            "--repo",
+            input.repository,
+            String(input.number),
+            "--json",
+            [
+              "number",
+              "title",
+              "url",
+              "state",
+              "isDraft",
+              "body",
+              "author",
+              "reviewDecision",
+              "baseRefName",
+              "headRefName",
+              "headRefOid",
+              "createdAt",
+              "updatedAt",
+              "comments",
+              "reviews",
+            ].join(","),
+          ],
           timeoutMs: 20_000,
         })
         .pipe(
-          Effect.mapError((error) =>
-            gitHubWorkspaceError("resolveRepositoryNameWithOwner", error.detail, error),
-          ),
+          Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)),
         );
-      const decoded = yield* parseJson(
-        "resolveRepositoryNameWithOwner",
-        "GitHub CLI returned invalid repository metadata JSON.",
-        repoView.stdout,
+      const prRaw = yield* parseJson(
+        "getWorkspace",
+        "GitHub CLI returned invalid pull request JSON.",
+        prViewResult.stdout,
       );
-      const repositoryNameWithOwner =
-        decoded && typeof decoded === "object"
-          ? trimToNull((decoded as Record<string, unknown>).nameWithOwner)
-          : null;
-      return repositoryNameWithOwner;
+      const prRecord = prRaw && typeof prRaw === "object" ? (prRaw as Record<string, unknown>) : {};
+      const pullRequest = {
+        repository: input.repository,
+        number: Number(prRecord.number ?? input.number),
+        title: ensureNonEmpty(prRecord.title, input.title),
+        url: ensureNonEmpty(prRecord.url, input.url),
+        state:
+          trimToNull(prRecord.state)?.toLowerCase() === "merged"
+            ? "merged"
+            : trimToNull(prRecord.state)?.toLowerCase() === "closed"
+              ? "closed"
+              : "open",
+        isDraft: Boolean(prRecord.isDraft),
+        body: typeof prRecord.body === "string" ? prRecord.body : "",
+        author: normalizeActor(prRecord.author),
+        reviewDecision: trimToNull(prRecord.reviewDecision),
+        baseBranch: ensureNonEmpty(prRecord.baseRefName, input.baseBranch),
+        headBranch: ensureNonEmpty(prRecord.headRefName, input.headBranch),
+        headSha: ensureNonEmpty(prRecord.headRefOid, "unknown"),
+        createdAt: normalizeIsoDateTime(prRecord.createdAt),
+        updatedAt: normalizeIsoDateTime(prRecord.updatedAt ?? prRecord.createdAt),
+        comments: Array.isArray(prRecord.comments)
+          ? prRecord.comments
+              .map(normalizeComment)
+              .filter((value): value is GitHubPullRequestComment => value !== null)
+          : [],
+        reviews: Array.isArray(prRecord.reviews)
+          ? prRecord.reviews
+              .map(normalizeReview)
+              .filter((value): value is GitHubPullRequestReview => value !== null)
+          : [],
+      };
+
+      const checksResult = yield* gitHubCli
+        .execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "checks",
+            "--repo",
+            input.repository,
+            String(input.number),
+            "--json",
+            "bucket,completedAt,description,event,link,name,startedAt,state,workflow",
+          ],
+          timeoutMs: 20_000,
+        })
+        .pipe(
+          Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)),
+        );
+      const checksRaw = yield* parseJson(
+        "getWorkspace",
+        "GitHub CLI returned invalid PR checks JSON.",
+        checksResult.stdout,
+      );
+      const checks = Array.isArray(checksRaw)
+        ? checksRaw
+            .map(normalizeCheckSummary)
+            .filter((value): value is GitHubCheckSummary => value !== null)
+        : [];
+      const runs = yield* loadWorkflowRuns(input.cwd, input.repository, pullRequest.headSha);
+
+      return {
+        ...pullRequest,
+        checks,
+        runs,
+      };
     },
   );
 
@@ -404,41 +491,47 @@ export const makeGitWorkspace = Effect.gen(function* () {
     "GitWorkspace.getRecentGraph",
   )(function* (input): Effect.fn.Return<GitRecentGraphResult, GitCommandError> {
     const limit = input.limit ?? DEFAULT_GRAPH_LIMIT;
-    const revListArgs = [
-      "rev-list",
-      "--parents",
-      "--topo-order",
-      "--all",
-      `--max-count=${limit + 1}`,
-    ];
-    const revList = yield* gitCore.execute({
-      operation: "GitWorkspace.getRecentGraph.revList",
+    const graphResult = yield* gitCore.execute({
+      operation: "GitWorkspace.getRecentGraph.log",
       cwd: input.cwd,
-      args: revListArgs,
+      args: [
+        "log",
+        "--graph",
+        "--topo-order",
+        "--all",
+        `--max-count=${limit + 1}`,
+        `--format=${GIT_LOG_GRAPH_FORMAT}`,
+      ],
       truncateOutputAtMaxBytes: true,
-      maxOutputBytes: 2 * 1024 * 1024,
+      maxOutputBytes: 4 * 1024 * 1024,
     });
+    const parsedGraph = parseGitLogGraphRows(graphResult.stdout);
+    const truncated = parsedGraph.commitCount > limit;
+    const visibleRows = (() => {
+      if (!truncated) {
+        return parsedGraph.rows;
+      }
+      const rows: Array<(typeof parsedGraph.rows)[number]> = [];
+      let visibleCommitCount = 0;
+      for (const row of parsedGraph.rows) {
+        if (row.commit) {
+          if (visibleCommitCount >= limit) {
+            break;
+          }
+          visibleCommitCount += 1;
+        }
+        rows.push(row);
+      }
+      return rows;
+    })();
 
-    const commitLines = revList.stdout
-      .split("\n")
-      .map(parseGraphCommitLine)
-      .filter((value): value is GraphCommitLine => value !== null);
-    const truncated = commitLines.length > limit;
-    const selectedCommitLines = commitLines.slice(0, limit);
-    const commitOids = selectedCommitLines.map((line) => line.oid);
-
-    const metadataByOid =
-      commitOids.length === 0
-        ? new Map<string, GraphCommitMetadata>()
-        : parseCommitMetadataLines(
-            (yield* gitCore.execute({
-              operation: "GitWorkspace.getRecentGraph.commitMetadata",
-              cwd: input.cwd,
-              args: ["show", "-s", "--format=%H%x00%h%x00%ct%x00%an%x00%s", ...commitOids],
-              truncateOutputAtMaxBytes: true,
-              maxOutputBytes: 2 * 1024 * 1024,
-            })).stdout,
-          );
+    const maxColumns = visibleRows.reduce((currentMax, row) => {
+      const rowMaxColumn = row.cells.reduce(
+        (maxColumn, cell) => Math.max(maxColumn, cell.column + 1),
+        0,
+      );
+      return Math.max(currentMax, rowMaxColumn);
+    }, 0);
 
     const branchList = yield* gitCore.listBranches({
       cwd: input.cwd,
@@ -563,23 +656,20 @@ export const makeGitWorkspace = Effect.gen(function* () {
 
     const defaultBranch =
       trimToNull(defaultBranchResult.stdout)?.replace(/^refs\/remotes\/origin\//, "") ?? null;
-
-    const nodes: GitGraphNode[] = selectedCommitLines.map((line) => {
-      const metadata = metadataByOid.get(line.oid);
-      return {
-        oid: line.oid,
-        shortOid: metadata?.shortOid ?? line.oid.slice(0, 7),
-        parentOids: [...line.parentOids],
-        subject: metadata?.subject ?? "(no subject)",
-        authoredAt: metadata?.authoredAt ?? new Date(0).toISOString(),
-        authorName: metadata?.authorName ?? "Unknown author",
-        isHead: headOid === line.oid,
-        isMergeCommit: line.parentOids.length > 1,
-      };
-    });
+    const rows = visibleRows.map((row) => ({
+      id: row.id,
+      cells: row.cells,
+      commit: row.commit
+        ? {
+            ...row.commit,
+            isHead: row.commit.oid === headOid,
+          }
+        : null,
+    }));
 
     return {
-      nodes,
+      rows,
+      maxColumns,
       refs,
       topology: {
         headOid,
@@ -599,9 +689,8 @@ export const makeGitWorkspace = Effect.gen(function* () {
       .pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.message, error)));
 
     const emptySnapshot = {
-      pullRequest: null,
-      checks: [],
-      runs: [],
+      pullRequests: [],
+      activePullRequest: null,
       fetchedAt: new Date().toISOString(),
     } as const;
 
@@ -668,197 +757,82 @@ export const makeGitWorkspace = Effect.gen(function* () {
       };
     }
 
-    const status = yield* gitManager
-      .status({ cwd: input.cwd })
+    const details = yield* gitCore
+      .statusDetails(input.cwd)
       .pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.message, error)));
 
-    if (!status.pr || status.pr.state !== "open") {
+    if (!details.branch) {
       return {
         availability: {
           kind: "available",
           message: "GitHub workspace is available.",
-          hostingProvider: status.hostingProvider ?? localStatus.hostingProvider,
+          hostingProvider: localStatus.hostingProvider,
         },
         ...emptySnapshot,
       };
     }
 
-    const prViewResult = yield* gitHubCli
-      .execute({
-        cwd: input.cwd,
-        args: [
-          "pr",
-          "view",
-          String(status.pr.number),
-          "--json",
-          [
-            "number",
-            "title",
-            "url",
-            "state",
-            "isDraft",
-            "body",
-            "author",
-            "reviewDecision",
-            "baseRefName",
-            "headRefName",
-            "headRefOid",
-            "createdAt",
-            "updatedAt",
-            "comments",
-            "reviews",
-          ].join(","),
-        ],
-        timeoutMs: 20_000,
-      })
-      .pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)));
-    const prRaw = yield* parseJson(
-      "getWorkspace",
-      "GitHub CLI returned invalid pull request JSON.",
-      prViewResult.stdout,
-    );
-    const prRecord = prRaw && typeof prRaw === "object" ? (prRaw as Record<string, unknown>) : {};
-    const pullRequest = {
-      number: Number(prRecord.number ?? status.pr.number),
-      title: ensureNonEmpty(prRecord.title, status.pr.title),
-      url: ensureNonEmpty(prRecord.url, status.pr.url),
-      state:
-        trimToNull(prRecord.state)?.toLowerCase() === "merged"
-          ? "merged"
-          : trimToNull(prRecord.state)?.toLowerCase() === "closed"
-            ? "closed"
-            : "open",
-      isDraft: Boolean(prRecord.isDraft),
-      body: typeof prRecord.body === "string" ? prRecord.body : "",
-      author: normalizeActor(prRecord.author),
-      reviewDecision: trimToNull(prRecord.reviewDecision),
-      baseBranch: ensureNonEmpty(prRecord.baseRefName, status.pr.baseBranch),
-      headBranch: ensureNonEmpty(prRecord.headRefName, status.pr.headBranch),
-      headSha: ensureNonEmpty(prRecord.headRefOid, "unknown"),
-      createdAt: normalizeIsoDateTime(prRecord.createdAt),
-      updatedAt: normalizeIsoDateTime(prRecord.updatedAt ?? prRecord.createdAt),
-      comments: Array.isArray(prRecord.comments)
-        ? prRecord.comments
-            .map(normalizeComment)
-            .filter((value): value is GitHubPullRequestComment => value !== null)
-        : [],
-      reviews: Array.isArray(prRecord.reviews)
-        ? prRecord.reviews
-            .map(normalizeReview)
-            .filter((value): value is GitHubPullRequestReview => value !== null)
-        : [],
-    };
+    const discoveredPullRequests = yield* discoverPullRequestsForBranch({
+      cwd: input.cwd,
+      branch: details.branch,
+      upstreamRef: details.upstreamRef,
+      gitCore,
+      gitHubCli,
+      limit: 5,
+    }).pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.message, error)));
 
-    const checksResult = yield* gitHubCli
-      .execute({
-        cwd: input.cwd,
-        args: [
-          "pr",
-          "checks",
-          String(status.pr.number),
-          "--json",
-          "bucket,completedAt,description,event,link,name,startedAt,state,workflow",
-        ],
-        timeoutMs: 20_000,
-      })
-      .pipe(Effect.mapError((error) => gitHubWorkspaceError("getWorkspace", error.detail, error)));
-    const checksRaw = yield* parseJson(
-      "getWorkspace",
-      "GitHub CLI returned invalid PR checks JSON.",
-      checksResult.stdout,
+    const pullRequests = yield* Effect.forEach(
+      discoveredPullRequests,
+      (pullRequest) =>
+        loadWorkspacePullRequest({
+          cwd: input.cwd,
+          repository: pullRequest.repository,
+          number: pullRequest.number,
+          title: pullRequest.title,
+          url: pullRequest.url,
+          baseBranch: pullRequest.baseRefName,
+          headBranch: pullRequest.headRefName,
+        }).pipe(
+          Effect.catch(() =>
+            Effect.succeed({
+              repository: pullRequest.repository,
+              number: pullRequest.number,
+              title: pullRequest.title,
+              url: pullRequest.url,
+              state: pullRequest.state,
+              isDraft: false,
+              body: "",
+              author: null,
+              reviewDecision: null,
+              baseBranch: pullRequest.baseRefName,
+              headBranch: pullRequest.headRefName,
+              headSha: "unknown",
+              createdAt: new Date(0).toISOString(),
+              updatedAt: pullRequest.updatedAt ?? new Date(0).toISOString(),
+              comments: [],
+              reviews: [],
+              checks: [],
+              runs: [],
+            }),
+          ),
+        ),
+      { concurrency: 2 },
     );
-    const checks = Array.isArray(checksRaw)
-      ? checksRaw
-          .map(normalizeCheckSummary)
-          .filter((value): value is GitHubCheckSummary => value !== null)
-      : [];
-
-    const repositoryNameWithOwner = yield* resolveRepositoryNameWithOwner(input.cwd, status.branch);
-    const runs =
-      repositoryNameWithOwner && pullRequest.headSha !== "unknown"
-        ? yield* Effect.gen(function* () {
-            const runsResult = yield* gitHubCli
-              .execute({
-                cwd: input.cwd,
-                args: [
-                  "api",
-                  `repos/${repositoryNameWithOwner}/actions/runs?head_sha=${encodeURIComponent(
-                    pullRequest.headSha,
-                  )}&per_page=10`,
-                ],
-                timeoutMs: 20_000,
-              })
-              .pipe(
-                Effect.mapError((error) =>
-                  gitHubWorkspaceError("getWorkspace", error.detail, error),
-                ),
-              );
-            const runsRaw = yield* parseJson(
-              "getWorkspace",
-              "GitHub CLI returned invalid workflow runs JSON.",
-              runsResult.stdout,
-            );
-            const runEntries =
-              runsRaw &&
-              typeof runsRaw === "object" &&
-              Array.isArray((runsRaw as any).workflow_runs)
-                ? ((runsRaw as any).workflow_runs as ReadonlyArray<unknown>)
-                : [];
-            return yield* Effect.forEach(
-              runEntries,
-              (entry) =>
-                Effect.gen(function* () {
-                  const runRecord =
-                    entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
-                  const runId = Number(runRecord.id);
-                  if (!Number.isFinite(runId)) {
-                    return null;
-                  }
-                  const jobsResult = yield* gitHubCli
-                    .execute({
-                      cwd: input.cwd,
-                      args: [
-                        "api",
-                        `repos/${repositoryNameWithOwner}/actions/runs/${runId}/jobs?per_page=50`,
-                      ],
-                      timeoutMs: 20_000,
-                    })
-                    .pipe(
-                      Effect.mapError((error) =>
-                        gitHubWorkspaceError("getWorkspace", error.detail, error),
-                      ),
-                    );
-                  const jobsRaw = yield* parseJson(
-                    "getWorkspace",
-                    "GitHub CLI returned invalid workflow jobs JSON.",
-                    jobsResult.stdout,
-                  );
-                  const jobs =
-                    jobsRaw && typeof jobsRaw === "object" && Array.isArray((jobsRaw as any).jobs)
-                      ? ((jobsRaw as any).jobs as ReadonlyArray<unknown>)
-                          .map(normalizeWorkflowJob)
-                          .filter((value): value is GitHubWorkflowJob => value !== null)
-                      : [];
-                  return normalizeWorkflowRun(entry, jobs);
-                }),
-              { concurrency: 3 },
-            ).pipe(
-              Effect.map((values) =>
-                values.filter((value): value is GitHubWorkflowRun => value !== null),
-              ),
-            );
-          })
-        : [];
+    const activePullRequest = pullRequests[0]
+      ? {
+          repository: pullRequests[0].repository,
+          number: pullRequests[0].number,
+        }
+      : null;
 
     return {
       availability: {
         kind: "available",
         message: "GitHub workspace is available.",
-        hostingProvider: status.hostingProvider ?? localStatus.hostingProvider,
+        hostingProvider: localStatus.hostingProvider,
       },
-      pullRequest,
-      checks,
-      runs,
+      pullRequests,
+      activePullRequest,
       fetchedAt: new Date().toISOString(),
     };
   });
@@ -869,7 +843,15 @@ export const makeGitWorkspace = Effect.gen(function* () {
     yield* gitHubCli
       .execute({
         cwd: input.cwd,
-        args: ["pr", "comment", String(input.number), "--body", input.body],
+        args: [
+          "pr",
+          "comment",
+          "--repo",
+          input.repository,
+          String(input.number),
+          "--body",
+          input.body,
+        ],
         timeoutMs: 20_000,
       })
       .pipe(
@@ -885,7 +867,7 @@ export const makeGitWorkspace = Effect.gen(function* () {
   const submitPullRequestReview: GitWorkspaceShape["submitPullRequestReview"] = Effect.fn(
     "GitWorkspace.submitPullRequestReview",
   )(function* (input): Effect.fn.Return<any, GitHubWorkspaceError> {
-    const baseArgs = ["pr", "review", String(input.number)];
+    const baseArgs = ["pr", "review", "--repo", input.repository, String(input.number)];
     const eventArgs =
       input.event === "approve"
         ? ["--approve"]

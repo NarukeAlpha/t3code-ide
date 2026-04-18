@@ -4,11 +4,13 @@ import type {
   GitRecentGraphResult,
   GitHubCheckSummary,
   GitHubPullRequestReviewEvent,
+  GitHubWorkspacePullRequest,
   GitHubWorkspaceSnapshot,
 } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircleIcon,
+  AlertTriangleIcon,
   ExternalLinkIcon,
   GitBranchIcon,
   GitCommitIcon,
@@ -19,7 +21,7 @@ import {
   ShieldAlertIcon,
   ShieldCheckIcon,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   gitAddPullRequestCommentMutationOptions,
@@ -27,8 +29,8 @@ import {
   gitRecentGraphQueryOptions,
   gitSubmitPullRequestReviewMutationOptions,
 } from "~/lib/gitReactQuery";
-import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
 import {
   Dialog,
   DialogDescription,
@@ -44,10 +46,23 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { Textarea } from "~/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
 import { toastManager } from "~/components/ui/toast";
-import { buildGraphRows } from "./GitRepositoryWorkspaceDialog.logic";
+import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
+import {
+  countRecentGraphCommits,
+  resolveActiveWorkspacePullRequest,
+  workspacePullRequestKey,
+} from "./GitRepositoryWorkspaceDialog.logic";
 
 type RepositoryWorkspaceTab = "graph" | "pull_request" | "checks";
 
@@ -58,9 +73,7 @@ interface GitRepositoryWorkspaceDialogProps {
   cwd: string | null;
 }
 
-const GRAPH_FALLBACK_ROW_HEIGHT = 44;
-const GRAPH_LANE_WIDTH = 14;
-const GRAPH_LANE_OFFSET = 12;
+const GRAPH_CELL_WIDTH_PX = 14;
 const GRAPH_LANE_COLORS = [
   "#3b82f6",
   "#10b981",
@@ -71,10 +84,6 @@ const GRAPH_LANE_COLORS = [
   "#84cc16",
   "#f97316",
 ] as const;
-
-function laneX(lane: number) {
-  return GRAPH_LANE_OFFSET + lane * GRAPH_LANE_WIDTH;
-}
 
 function graphLaneColor(lane: number) {
   return GRAPH_LANE_COLORS[lane % GRAPH_LANE_COLORS.length] ?? GRAPH_LANE_COLORS[0];
@@ -152,6 +161,121 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function shortSha(value: string | null | undefined) {
+  return value ? value.slice(0, 8) : "unknown";
+}
+
+function WorkspaceAvailabilityEmpty({
+  title,
+  description,
+  icon,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Empty className="min-h-[22rem]">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">{icon}</EmptyMedia>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  );
+}
+
+function RepositoryWorkspaceTabShell({
+  toolbar,
+  children,
+}: {
+  toolbar?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-muted/10">
+      {toolbar ? <div className="border-b bg-background/80 px-4 py-3">{toolbar}</div> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+    </div>
+  );
+}
+
+function PullRequestContextToolbar({
+  workspace,
+  activePullRequest,
+  selectedPullRequestKey,
+  onSelectedPullRequestKeyChange,
+  onRefresh,
+}: {
+  workspace: GitHubWorkspaceSnapshot;
+  activePullRequest: GitHubWorkspacePullRequest | null;
+  selectedPullRequestKey: string | null;
+  onSelectedPullRequestKeyChange: (key: string | null) => void;
+  onRefresh: () => void;
+}) {
+  const pullRequestItems = useMemo(
+    () =>
+      workspace.pullRequests.map((pullRequest) => ({
+        value: workspacePullRequestKey(pullRequest),
+        label: `${pullRequest.repository}#${pullRequest.number}`,
+      })),
+    [workspace.pullRequests],
+  );
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {workspace.pullRequests.length > 1 ? (
+          <Select
+            value={
+              selectedPullRequestKey ??
+              workspacePullRequestKey(activePullRequest ?? workspace.pullRequests[0]!)
+            }
+            onValueChange={onSelectedPullRequestKeyChange}
+            items={pullRequestItems}
+          >
+            <SelectTrigger className="max-w-[24rem]" size="sm" aria-label="Pull request context">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectGroup>
+                <SelectGroupLabel>Pull Request Context</SelectGroupLabel>
+                {workspace.pullRequests.map((pullRequest) => (
+                  <SelectItem
+                    key={workspacePullRequestKey(pullRequest)}
+                    value={workspacePullRequestKey(pullRequest)}
+                  >
+                    <span className="inline-flex min-w-0 items-center gap-2">
+                      <span className="truncate">{pullRequest.repository}</span>
+                      <Badge variant="outline" size="sm">
+                        #{pullRequest.number}
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectPopup>
+          </Select>
+        ) : activePullRequest ? (
+          <>
+            <Badge variant="outline">{activePullRequest.repository}</Badge>
+            <Badge variant="secondary">#{activePullRequest.number}</Badge>
+          </>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="text-muted-foreground text-sm">
+          Updated {formatDateTime(workspace.fetchedAt)}
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          <RefreshCwIcon />
+          Refresh
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function GitGraph({ graph }: { graph: GitRecentGraphResult }) {
   const refsByOid = useMemo(() => {
     const grouped = new Map<string, GitGraphRef[]>();
@@ -165,216 +289,80 @@ function GitGraph({ graph }: { graph: GitRecentGraphResult }) {
     }
     return grouped;
   }, [graph.refs]);
-  const { rows, maxLaneCount } = useMemo(() => buildGraphRows(graph.nodes), [graph.nodes]);
-  const graphWidth = Math.max(72, GRAPH_LANE_OFFSET * 2 + (maxLaneCount - 1) * GRAPH_LANE_WIDTH);
-  const rowsContainerRef = useRef<HTMLDivElement | null>(null);
-  const rowRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const [rowMetrics, setRowMetrics] = useState<{
-    readonly tops: ReadonlyArray<number>;
-    readonly heights: ReadonlyArray<number>;
-    readonly totalHeight: number;
-  }>({
-    tops: [],
-    heights: [],
-    totalHeight: 0,
-  });
+  const commitCount = useMemo(() => countRecentGraphCommits(graph), [graph]);
 
-  useLayoutEffect(() => {
-    if (rows.length === 0) {
-      setRowMetrics({ tops: [], heights: [], totalHeight: 0 });
-      return;
-    }
-
-    const measure = () => {
-      const tops = rows.map((_, index) => rowRefs.current[index]?.offsetTop ?? 0);
-      const heights = rows.map(
-        (_, index) => rowRefs.current[index]?.offsetHeight ?? GRAPH_FALLBACK_ROW_HEIGHT,
-      );
-      const lastIndex = rows.length - 1;
-      const totalHeight =
-        lastIndex >= 0
-          ? (tops[lastIndex] ?? 0) + (heights[lastIndex] ?? GRAPH_FALLBACK_ROW_HEIGHT)
-          : 0;
-
-      setRowMetrics((previous) => {
-        const sameTops =
-          previous.tops.length === tops.length &&
-          previous.tops.every((value, index) => value === tops[index]);
-        const sameHeights =
-          previous.heights.length === heights.length &&
-          previous.heights.every((value, index) => value === heights[index]);
-        if (sameTops && sameHeights && previous.totalHeight === totalHeight) {
-          return previous;
-        }
-        return { tops, heights, totalHeight };
-      });
-    };
-
-    measure();
-    const frameId = window.requestAnimationFrame(measure);
-    window.addEventListener("resize", measure);
-    const rowsContainerElement = rowsContainerRef.current;
-    const resizeObserver =
-      typeof ResizeObserver === "undefined" || rowsContainerElement === null
-        ? null
-        : new ResizeObserver(() => {
-            measure();
-          });
-    if (resizeObserver && rowsContainerElement) {
-      resizeObserver.observe(rowsContainerElement);
-    }
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      window.removeEventListener("resize", measure);
-      resizeObserver?.disconnect();
-    };
-  }, [rows]);
-
-  if (rows.length === 0) {
+  if (graph.rows.length === 0) {
     return (
-      <Empty className="min-h-[22rem]">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <GitCommitIcon />
-          </EmptyMedia>
-          <EmptyTitle>No commits to render</EmptyTitle>
-          <EmptyDescription>This repository does not have visible commits yet.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      <WorkspaceAvailabilityEmpty
+        title="No commits to render"
+        description="This repository does not have visible commits yet."
+        icon={<GitCommitIcon />}
+      />
     );
   }
 
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        {graph.topology.headBranch ? (
-          <Badge variant="outline" size="sm">
-            HEAD: {graph.topology.headBranch}
-          </Badge>
-        ) : (
-          <Badge variant="warning" size="sm">
-            Detached HEAD
-          </Badge>
-        )}
-        {graph.topology.defaultBranch ? (
-          <Badge variant="secondary" size="sm">
-            Default: {graph.topology.defaultBranch}
-          </Badge>
-        ) : null}
-        <span>{graph.nodes.length} commits</span>
-        {graph.truncated ? <span>Showing the most recent slice only.</span> : null}
-      </div>
-      <div className="overflow-x-auto rounded-lg border bg-muted/24">
-        <div className="relative min-w-[46rem] px-3">
-          <svg
-            aria-hidden="true"
-            className="pointer-events-none absolute left-0 top-0 overflow-visible"
-            height={rowMetrics.totalHeight || rows.length * GRAPH_FALLBACK_ROW_HEIGHT}
-            width={graphWidth}
-            style={{ shapeRendering: "geometricPrecision" }}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            {rows.map((row, rowIndex) => {
-              const rowTop = rowMetrics.tops[rowIndex] ?? rowIndex * GRAPH_FALLBACK_ROW_HEIGHT;
-              const rowHeight = rowMetrics.heights[rowIndex] ?? GRAPH_FALLBACK_ROW_HEIGHT;
-              const rowBottom = rowTop + rowHeight;
-              const nodeY = rowTop + rowHeight / 2;
+  const graphPrefixWidth = Math.max(graph.maxColumns, 1) * GRAPH_CELL_WIDTH_PX;
 
-              return (
-                <g key={row.node.oid}>
-                  {row.lanesBefore.map((oid, laneIndex) => {
-                    if (oid === row.node.oid) {
-                      return null;
-                    }
-                    const nextLane = row.lanesAfter.indexOf(oid);
-                    if (nextLane === -1) {
-                      return null;
-                    }
+  return (
+    <RepositoryWorkspaceTabShell
+      toolbar={
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          {graph.topology.headBranch ? (
+            <Badge variant="outline" size="sm">
+              HEAD: {graph.topology.headBranch}
+            </Badge>
+          ) : (
+            <Badge variant="warning" size="sm">
+              Detached HEAD
+            </Badge>
+          )}
+          {graph.topology.defaultBranch ? (
+            <Badge variant="secondary" size="sm">
+              Default: {graph.topology.defaultBranch}
+            </Badge>
+          ) : null}
+          <span>{commitCount} commits</span>
+          {graph.truncated ? <span>Showing the most recent slice only.</span> : null}
+        </div>
+      }
+    >
+      <div className="overflow-x-auto">
+        <div className="min-w-[48rem] space-y-0.5">
+          {graph.rows.map((row) => {
+            const refs = row.commit ? (refsByOid.get(row.commit.oid) ?? []) : [];
+            const cellsByColumn = new Map(row.cells.map((cell) => [cell.column, cell]));
+            const columns = Array.from(
+              { length: Math.max(graph.maxColumns, 1) },
+              (_, graphColumn) => graphColumn,
+            );
+
+            return (
+              <div
+                key={row.id}
+                className="grid items-start gap-3"
+                style={{ gridTemplateColumns: `${graphPrefixWidth}px minmax(0,1fr)` }}
+              >
+                <div className="font-mono text-[13px] leading-6">
+                  {columns.map((graphColumn) => {
+                    const cell = cellsByColumn.get(graphColumn);
                     return (
-                      <line
-                        key={`${row.node.oid}-${oid}`}
-                        x1={laneX(laneIndex)}
-                        x2={laneX(nextLane)}
-                        y1={rowTop}
-                        y2={rowBottom}
-                        style={{ stroke: graphLaneColor(nextLane) }}
-                        strokeOpacity={0.82}
-                        strokeWidth={1.5}
-                      />
+                      <span
+                        key={`${row.id}-${graphColumn}`}
+                        className="inline-block text-center"
+                        style={{
+                          width: `${GRAPH_CELL_WIDTH_PX}px`,
+                          color: cell ? graphLaneColor(cell.lane ?? 0) : undefined,
+                        }}
+                      >
+                        {cell?.glyph ?? " "}
+                      </span>
                     );
                   })}
-                  {row.hadExistingLane ? (
-                    <line
-                      x1={laneX(row.nodeLane)}
-                      x2={laneX(row.nodeLane)}
-                      y1={rowTop}
-                      y2={nodeY}
-                      style={{ stroke: graphLaneColor(row.nodeLane) }}
-                      strokeOpacity={0.82}
-                      strokeWidth={1.5}
-                    />
-                  ) : null}
-                  {row.node.parentOids.map((parentOid) => {
-                    const parentLane = row.lanesAfter.indexOf(parentOid);
-                    if (parentLane === -1) {
-                      return null;
-                    }
-                    return (
-                      <line
-                        key={`${row.node.oid}-${parentOid}`}
-                        x1={laneX(row.nodeLane)}
-                        x2={laneX(parentLane)}
-                        y1={nodeY}
-                        y2={rowBottom}
-                        style={{ stroke: graphLaneColor(parentLane) }}
-                        strokeOpacity={row.node.isHead ? 1 : 0.9}
-                        strokeWidth={1.5}
-                      />
-                    );
-                  })}
-                  {row.node.isHead ? (
-                    <circle
-                      cx={laneX(row.nodeLane)}
-                      cy={nodeY}
-                      r={row.node.isMergeCommit ? 7 : 6.5}
-                      fill="none"
-                      style={{ stroke: graphLaneColor(row.nodeLane) }}
-                      strokeOpacity={0.28}
-                      strokeWidth={2.5}
-                    />
-                  ) : null}
-                  <circle
-                    cx={laneX(row.nodeLane)}
-                    cy={nodeY}
-                    r={row.node.isMergeCommit ? 4.5 : 4}
-                    style={{
-                      fill: graphLaneColor(row.nodeLane),
-                      stroke: graphLaneColor(row.nodeLane),
-                    }}
-                    strokeOpacity={row.node.isHead ? 1 : 0.95}
-                    strokeWidth={1.5}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-          <div ref={rowsContainerRef} className="relative">
-            {rows.map((row, rowIndex) => {
-              const refs = refsByOid.get(row.node.oid) ?? [];
-              return (
-                <div
-                  key={row.node.oid}
-                  ref={(element) => {
-                    rowRefs.current[rowIndex] = element;
-                  }}
-                  className="grid items-stretch gap-3"
-                  style={{ gridTemplateColumns: `${graphWidth}px minmax(0,1fr)` }}
-                >
-                  <div aria-hidden="true" />
-                  <div className="min-w-0 py-1.5">
+                </div>
+                {row.commit ? (
+                  <div className="min-w-0 py-0.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <span className="truncate font-medium text-sm">{row.node.subject}</span>
+                      <span className="truncate font-medium text-sm">{row.commit.subject}</span>
                       {refs.map((ref) => (
                         <Badge
                           key={ref.id}
@@ -387,49 +375,35 @@ function GitGraph({ graph }: { graph: GitRecentGraphResult }) {
                       ))}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
-                      <span>{row.node.shortOid}</span>
-                      <span>{row.node.authorName}</span>
-                      <span>{formatDateTime(row.node.authoredAt)}</span>
-                      {row.node.parentOids.length > 0 ? (
+                      <span>{row.commit.shortOid}</span>
+                      <span>{row.commit.authorName}</span>
+                      <span>{formatDateTime(row.commit.authoredAt)}</span>
+                      {row.commit.parentOids.length > 0 ? (
                         <span>
-                          {row.node.parentOids.length} parent
-                          {row.node.parentOids.length === 1 ? "" : "s"}
+                          {row.commit.parentOids.length} parent
+                          {row.commit.parentOids.length === 1 ? "" : "s"}
                         </span>
                       ) : null}
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                ) : (
+                  <div />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
-    </div>
-  );
-}
-
-function WorkspaceAvailabilityEmpty({
-  title,
-  description,
-  icon,
-}: {
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Empty className="min-h-[22rem]">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">{icon}</EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
-      </EmptyHeader>
-    </Empty>
+    </RepositoryWorkspaceTabShell>
   );
 }
 
 function PullRequestPanel({
   workspace,
+  pullRequest,
+  divergenceNotice,
+  selectedPullRequestKey,
+  onSelectedPullRequestKeyChange,
   onRefresh,
   onSubmitComment,
   onSubmitReview,
@@ -437,6 +411,10 @@ function PullRequestPanel({
   isReviewPending,
 }: {
   workspace: GitHubWorkspaceSnapshot;
+  pullRequest: GitHubWorkspacePullRequest | null;
+  divergenceNotice: string | null;
+  selectedPullRequestKey: string | null;
+  onSelectedPullRequestKeyChange: (key: string | null) => void;
   onRefresh: () => void;
   onSubmitComment: (body: string) => Promise<void>;
   onSubmitReview: (event: GitHubPullRequestReviewEvent, body: string) => Promise<void>;
@@ -449,7 +427,7 @@ function PullRequestPanel({
   useEffect(() => {
     setCommentBody("");
     setReviewBody("");
-  }, [workspace.fetchedAt, workspace.pullRequest?.number]);
+  }, [pullRequest?.repository, pullRequest?.number]);
 
   if (workspace.availability.kind !== "available") {
     return (
@@ -461,209 +439,223 @@ function PullRequestPanel({
     );
   }
 
-  if (!workspace.pullRequest) {
+  if (!pullRequest) {
     return (
       <WorkspaceAvailabilityEmpty
-        title="No Open Pull Request"
-        description="The current branch does not have an open GitHub pull request."
+        title="No Matching Pull Requests"
+        description="No pull requests were found for the current branch context."
         icon={<GitBranchIcon />}
       />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-muted/20 p-4">
-        <div className="min-w-0 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">#{workspace.pullRequest.number}</Badge>
-            <Badge variant={workspace.pullRequest.isDraft ? "warning" : "success"}>
-              {workspace.pullRequest.isDraft ? "Draft" : workspace.pullRequest.state}
-            </Badge>
-            {workspace.pullRequest.reviewDecision ? (
-              <Badge variant="secondary">{workspace.pullRequest.reviewDecision}</Badge>
-            ) : null}
-          </div>
-          <div className="font-semibold text-lg leading-tight">{workspace.pullRequest.title}</div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-sm">
-            <span>
-              {workspace.pullRequest.baseBranch} ← {workspace.pullRequest.headBranch}
-            </span>
-            {workspace.pullRequest.author ? (
-              <span>@{workspace.pullRequest.author.login}</span>
-            ) : null}
-            <span>Updated {formatDateTime(workspace.pullRequest.updatedAt)}</span>
-          </div>
+    <RepositoryWorkspaceTabShell
+      toolbar={
+        <div className="space-y-3">
+          <PullRequestContextToolbar
+            workspace={workspace}
+            activePullRequest={pullRequest}
+            selectedPullRequestKey={selectedPullRequestKey}
+            onSelectedPullRequestKeyChange={onSelectedPullRequestKeyChange}
+            onRefresh={onRefresh}
+          />
+          {divergenceNotice ? (
+            <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 text-amber-950 dark:text-amber-100">{divergenceNotice}</div>
+            </div>
+          ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRefresh}
-            disabled={isCommentPending || isReviewPending}
-          >
-            <RefreshCwIcon />
-            Refresh
-          </Button>
-          <Button render={<a href={workspace.pullRequest.url} rel="noreferrer" target="_blank" />}>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-muted/20 p-4">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{pullRequest.repository}</Badge>
+              <Badge variant="outline">#{pullRequest.number}</Badge>
+              <Badge variant={pullRequest.isDraft ? "warning" : "success"}>
+                {pullRequest.isDraft ? "Draft" : pullRequest.state}
+              </Badge>
+              {pullRequest.reviewDecision ? (
+                <Badge variant="secondary">{pullRequest.reviewDecision}</Badge>
+              ) : null}
+            </div>
+            <div className="font-semibold text-lg leading-tight">{pullRequest.title}</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-sm">
+              <span>
+                {pullRequest.baseBranch} ← {pullRequest.headBranch}
+              </span>
+              {pullRequest.author ? <span>@{pullRequest.author.login}</span> : null}
+              <span>Updated {formatDateTime(pullRequest.updatedAt)}</span>
+            </div>
+          </div>
+          <Button render={<a href={pullRequest.url} rel="noreferrer" target="_blank" />}>
             <ExternalLinkIcon />
             Open on GitHub
           </Button>
         </div>
-      </div>
 
-      {workspace.pullRequest.body.trim().length > 0 ? (
-        <div className="rounded-lg border bg-background p-4">
-          <div className="mb-2 font-medium text-sm">Description</div>
-          <pre className="whitespace-pre-wrap break-words text-sm">
-            {workspace.pullRequest.body}
-          </pre>
-        </div>
-      ) : null}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3 rounded-lg border bg-background p-4">
-          <div className="font-medium text-sm">Add Comment</div>
-          <Textarea
-            rows={6}
-            value={commentBody}
-            onChange={(event) => setCommentBody(event.target.value)}
-            placeholder="Leave a top-level pull request comment"
-          />
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              disabled={isCommentPending || commentBody.trim().length === 0}
-              onClick={() => void onSubmitComment(commentBody)}
-            >
-              {isCommentPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
-              Comment
-            </Button>
+        {pullRequest.body.trim().length > 0 ? (
+          <div className="rounded-lg border bg-background p-4">
+            <div className="mb-2 font-medium text-sm">Description</div>
+            <pre className="whitespace-pre-wrap break-words text-sm">{pullRequest.body}</pre>
           </div>
-        </div>
+        ) : null}
 
-        <div className="space-y-3 rounded-lg border bg-background p-4">
-          <div className="font-medium text-sm">Submit Review</div>
-          <Textarea
-            rows={6}
-            value={reviewBody}
-            onChange={(event) => setReviewBody(event.target.value)}
-            placeholder="Optional review summary"
-          />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={isReviewPending || reviewBody.trim().length === 0}
-              onClick={() => void onSubmitReview("comment", reviewBody)}
-            >
-              {isReviewPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
-              Comment
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={isReviewPending}
-              onClick={() => void onSubmitReview("request_changes", reviewBody)}
-            >
-              <ShieldAlertIcon />
-              Request Changes
-            </Button>
-            <Button
-              size="sm"
-              disabled={isReviewPending}
-              onClick={() => void onSubmitReview("approve", reviewBody)}
-            >
-              <ShieldCheckIcon />
-              Approve
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3 rounded-lg border bg-background p-4">
-          <div className="font-medium text-sm">Comments</div>
-          {workspace.pullRequest.comments.length === 0 ? (
-            <div className="text-muted-foreground text-sm">No top-level comments.</div>
-          ) : (
-            <div className="space-y-3">
-              {workspace.pullRequest.comments.map((comment) => (
-                <div key={comment.id} className="rounded-md border bg-muted/16 p-3">
-                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                    <Badge variant="outline" size="sm">
-                      {comment.author ? `@${comment.author.login}` : "Unknown author"}
-                    </Badge>
-                    <span className="text-muted-foreground">
-                      {formatDateTime(comment.updatedAt)}
-                    </span>
-                    <a
-                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                      href={comment.url}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open
-                      <ExternalLinkIcon className="size-3" />
-                    </a>
-                  </div>
-                  <pre className="whitespace-pre-wrap break-words text-sm">{comment.body}</pre>
-                </div>
-              ))}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-3 rounded-lg border bg-background p-4">
+            <div className="font-medium text-sm">Add Comment</div>
+            <Textarea
+              rows={6}
+              value={commentBody}
+              onChange={(event) => setCommentBody(event.target.value)}
+              placeholder="Leave a top-level pull request comment"
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                disabled={isCommentPending || commentBody.trim().length === 0}
+                onClick={() => void onSubmitComment(commentBody)}
+              >
+                {isCommentPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
+                Comment
+              </Button>
             </div>
-          )}
+          </div>
+
+          <div className="space-y-3 rounded-lg border bg-background p-4">
+            <div className="font-medium text-sm">Submit Review</div>
+            <Textarea
+              rows={6}
+              value={reviewBody}
+              onChange={(event) => setReviewBody(event.target.value)}
+              placeholder="Optional review summary"
+            />
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isReviewPending || reviewBody.trim().length === 0}
+                onClick={() => void onSubmitReview("comment", reviewBody)}
+              >
+                {isReviewPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
+                Comment
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isReviewPending}
+                onClick={() => void onSubmitReview("request_changes", reviewBody)}
+              >
+                <ShieldAlertIcon />
+                Request Changes
+              </Button>
+              <Button
+                size="sm"
+                disabled={isReviewPending}
+                onClick={() => void onSubmitReview("approve", reviewBody)}
+              >
+                <ShieldCheckIcon />
+                Approve
+              </Button>
+            </div>
+          </div>
         </div>
 
-        <div className="space-y-3 rounded-lg border bg-background p-4">
-          <div className="font-medium text-sm">Reviews</div>
-          {workspace.pullRequest.reviews.length === 0 ? (
-            <div className="text-muted-foreground text-sm">No submitted reviews.</div>
-          ) : (
-            <div className="space-y-3">
-              {workspace.pullRequest.reviews.map((review) => (
-                <div key={review.id} className="rounded-md border bg-muted/16 p-3">
-                  <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                    <Badge variant="outline" size="sm">
-                      {review.author ? `@${review.author.login}` : "Unknown reviewer"}
-                    </Badge>
-                    <Badge variant="secondary" size="sm">
-                      {review.state}
-                    </Badge>
-                    {review.submittedAt ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-3 rounded-lg border bg-background p-4">
+            <div className="font-medium text-sm">Comments</div>
+            {pullRequest.comments.length === 0 ? (
+              <div className="text-muted-foreground text-sm">No top-level comments.</div>
+            ) : (
+              <div className="space-y-3">
+                {pullRequest.comments.map((comment) => (
+                  <div key={comment.id} className="rounded-md border bg-muted/16 p-3">
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                      <Badge variant="outline" size="sm">
+                        {comment.author ? `@${comment.author.login}` : "Unknown author"}
+                      </Badge>
                       <span className="text-muted-foreground">
-                        {formatDateTime(review.submittedAt)}
+                        {formatDateTime(comment.updatedAt)}
                       </span>
-                    ) : null}
-                    <a
-                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                      href={review.url}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      Open
-                      <ExternalLinkIcon className="size-3" />
-                    </a>
+                      <a
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        href={comment.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open
+                        <ExternalLinkIcon className="size-3" />
+                      </a>
+                    </div>
+                    <pre className="whitespace-pre-wrap break-words text-sm">{comment.body}</pre>
                   </div>
-                  {review.body.trim().length > 0 ? (
-                    <pre className="whitespace-pre-wrap break-words text-sm">{review.body}</pre>
-                  ) : (
-                    <div className="text-muted-foreground text-sm">No review body.</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-lg border bg-background p-4">
+            <div className="font-medium text-sm">Reviews</div>
+            {pullRequest.reviews.length === 0 ? (
+              <div className="text-muted-foreground text-sm">No submitted reviews.</div>
+            ) : (
+              <div className="space-y-3">
+                {pullRequest.reviews.map((review) => (
+                  <div key={review.id} className="rounded-md border bg-muted/16 p-3">
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                      <Badge variant="outline" size="sm">
+                        {review.author ? `@${review.author.login}` : "Unknown reviewer"}
+                      </Badge>
+                      <Badge variant="secondary" size="sm">
+                        {review.state}
+                      </Badge>
+                      {review.submittedAt ? (
+                        <span className="text-muted-foreground">
+                          {formatDateTime(review.submittedAt)}
+                        </span>
+                      ) : null}
+                      <a
+                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        href={review.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        Open
+                        <ExternalLinkIcon className="size-3" />
+                      </a>
+                    </div>
+                    {review.body.trim().length > 0 ? (
+                      <pre className="whitespace-pre-wrap break-words text-sm">{review.body}</pre>
+                    ) : (
+                      <div className="text-muted-foreground text-sm">No review body.</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </RepositoryWorkspaceTabShell>
   );
 }
 
 function ChecksPanel({
   workspace,
+  pullRequest,
+  divergenceNotice,
+  selectedPullRequestKey,
+  onSelectedPullRequestKeyChange,
   onRefresh,
 }: {
   workspace: GitHubWorkspaceSnapshot;
+  pullRequest: GitHubWorkspacePullRequest | null;
+  divergenceNotice: string | null;
+  selectedPullRequestKey: string | null;
+  onSelectedPullRequestKeyChange: (key: string | null) => void;
   onRefresh: () => void;
 }) {
   if (workspace.availability.kind !== "available") {
@@ -676,38 +668,46 @@ function ChecksPanel({
     );
   }
 
-  if (!workspace.pullRequest) {
+  if (!pullRequest) {
     return (
       <WorkspaceAvailabilityEmpty
-        title="No Open Pull Request"
-        description="Checks and workflow runs are shown for the current branch's open pull request."
+        title="No Matching Pull Requests"
+        description="Checks and workflow runs are shown for the active pull request context."
         icon={<PlayCircleIcon />}
       />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-muted-foreground text-sm">
-          Updated {formatDateTime(workspace.fetchedAt)}
+    <RepositoryWorkspaceTabShell
+      toolbar={
+        <div className="space-y-3">
+          <PullRequestContextToolbar
+            workspace={workspace}
+            activePullRequest={pullRequest}
+            selectedPullRequestKey={selectedPullRequestKey}
+            onSelectedPullRequestKeyChange={onSelectedPullRequestKeyChange}
+            onRefresh={onRefresh}
+          />
+          {divergenceNotice ? (
+            <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 text-amber-950 dark:text-amber-100">{divergenceNotice}</div>
+            </div>
+          ) : null}
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh}>
-          <RefreshCwIcon />
-          Refresh
-        </Button>
-      </div>
-
+      }
+    >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
         <div className="space-y-3 rounded-lg border bg-background p-4">
           <div className="font-medium text-sm">PR Checks</div>
-          {workspace.checks.length === 0 ? (
+          {pullRequest.checks.length === 0 ? (
             <div className="text-muted-foreground text-sm">No checks reported for this PR.</div>
           ) : (
             <div className="space-y-2">
-              {workspace.checks.map((check) => (
+              {pullRequest.checks.map((check) => (
                 <div
-                  key={`${check.name}-${check.startedAt ?? "na"}`}
+                  key={`${pullRequest.repository}-${pullRequest.number}-${check.name}-${check.startedAt ?? "na"}`}
                   className="rounded-md border bg-muted/16 p-3"
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -744,14 +744,17 @@ function ChecksPanel({
 
         <div className="space-y-3 rounded-lg border bg-background p-4">
           <div className="font-medium text-sm">Workflow Runs</div>
-          {workspace.runs.length === 0 ? (
+          {pullRequest.runs.length === 0 ? (
             <div className="text-muted-foreground text-sm">
               No workflow runs were found for the current PR head SHA.
             </div>
           ) : (
             <div className="space-y-3">
-              {workspace.runs.map((run) => (
-                <div key={run.id} className="rounded-md border bg-muted/16 p-3">
+              {pullRequest.runs.map((run) => (
+                <div
+                  key={`${pullRequest.repository}-${pullRequest.number}-${run.id}`}
+                  className="rounded-md border bg-muted/16 p-3"
+                >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -816,7 +819,7 @@ function ChecksPanel({
           )}
         </div>
       </div>
-    </div>
+    </RepositoryWorkspaceTabShell>
   );
 }
 
@@ -828,6 +831,7 @@ export function GitRepositoryWorkspaceDialog({
 }: GitRepositoryWorkspaceDialogProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<RepositoryWorkspaceTab>("graph");
+  const [selectedPullRequestKey, setSelectedPullRequestKey] = useState<string | null>(null);
   const [isWindowVisible, setIsWindowVisible] = useState(() =>
     typeof document === "undefined" ? true : document.visibilityState === "visible",
   );
@@ -862,6 +866,21 @@ export function GitRepositoryWorkspaceDialog({
     refetchInterval: open && activeTab === "checks" && isWindowVisible ? 15_000 : false,
   });
 
+  const activePullRequest = useMemo(
+    () => resolveActiveWorkspacePullRequest(workspaceQuery.data ?? null, selectedPullRequestKey),
+    [selectedPullRequestKey, workspaceQuery.data],
+  );
+
+  const divergenceNotice = useMemo(() => {
+    if (!graphQuery.data?.topology.headOid || !activePullRequest) {
+      return null;
+    }
+    if (graphQuery.data.topology.headOid === activePullRequest.headSha) {
+      return null;
+    }
+    return `Local HEAD ${shortSha(graphQuery.data.topology.headOid)} differs from this PR head ${shortSha(activePullRequest.headSha)}. Pull request details and checks reflect the remote PR head, not unpublished local commits.`;
+  }, [activePullRequest, graphQuery.data]);
+
   const commentMutation = useMutation(
     gitAddPullRequestCommentMutationOptions({
       environmentId,
@@ -882,12 +901,13 @@ export function GitRepositoryWorkspaceDialog({
   };
 
   const handleSubmitComment = async (body: string) => {
-    if (!cwd || !workspaceQuery.data?.pullRequest) {
+    if (!cwd || !activePullRequest) {
       return;
     }
     await commentMutation.mutateAsync({
       cwd,
-      number: workspaceQuery.data.pullRequest.number,
+      repository: activePullRequest.repository,
+      number: activePullRequest.number,
       body: body.trim(),
     });
     toastManager.add({
@@ -898,12 +918,13 @@ export function GitRepositoryWorkspaceDialog({
   };
 
   const handleSubmitReview = async (event: GitHubPullRequestReviewEvent, body: string) => {
-    if (!cwd || !workspaceQuery.data?.pullRequest) {
+    if (!cwd || !activePullRequest) {
       return;
     }
     await reviewMutation.mutateAsync({
       cwd,
-      number: workspaceQuery.data.pullRequest.number,
+      repository: activePullRequest.repository,
+      number: activePullRequest.number,
       event,
       ...(body.trim().length > 0 ? { body: body.trim() } : {}),
     });
@@ -982,6 +1003,10 @@ export function GitRepositoryWorkspaceDialog({
       return (
         <PullRequestPanel
           workspace={workspaceQuery.data}
+          pullRequest={activePullRequest}
+          divergenceNotice={divergenceNotice}
+          selectedPullRequestKey={selectedPullRequestKey}
+          onSelectedPullRequestKeyChange={setSelectedPullRequestKey}
           onRefresh={() => void handleRefreshWorkspace()}
           onSubmitComment={(body) => handleSubmitComment(body)}
           onSubmitReview={(event, body) => handleSubmitReview(event, body)}
@@ -994,6 +1019,10 @@ export function GitRepositoryWorkspaceDialog({
     return (
       <ChecksPanel
         workspace={workspaceQuery.data}
+        pullRequest={activePullRequest}
+        divergenceNotice={divergenceNotice}
+        selectedPullRequestKey={selectedPullRequestKey}
+        onSelectedPullRequestKeyChange={setSelectedPullRequestKey}
         onRefresh={() => void handleRefreshWorkspace()}
       />
     );
@@ -1024,7 +1053,9 @@ export function GitRepositoryWorkspaceDialog({
             <ToggleGroupItem value="checks">Checks</ToggleGroupItem>
           </ToggleGroup>
         </DialogHeader>
-        <DialogPanel className="min-h-[34rem]">{renderTabBody()}</DialogPanel>
+        <DialogPanel className="min-h-[36rem] max-h-[68vh] overflow-hidden">
+          {renderTabBody()}
+        </DialogPanel>
       </DialogPopup>
     </Dialog>
   );

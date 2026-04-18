@@ -72,7 +72,7 @@ export function projectDetectedScriptsQueryOptions(input: {
     queryKey: projectQueryKeys.detectedScripts(input.environmentId, input.cwd),
     queryFn: async () => {
       if (!input.cwd || !input.environmentId) {
-        throw new Error("Package script detection is unavailable.");
+        throw new Error("Detected script discovery is unavailable.");
       }
       const api = ensureEnvironmentApi(input.environmentId);
       return api.projects.listDetectedScripts({ cwd: input.cwd });

@@ -200,6 +200,7 @@ export type GitRecentGraphInput = typeof GitRecentGraphInput.Type;
 
 const GitStatusPr = Schema.Struct({
   number: PositiveInt,
+  repository: TrimmedNonEmptyStringSchema,
   title: TrimmedNonEmptyStringSchema,
   url: Schema.String,
   baseBranch: TrimmedNonEmptyStringSchema,
@@ -342,6 +343,20 @@ export const GitGraphNode = Schema.Struct({
 });
 export type GitGraphNode = typeof GitGraphNode.Type;
 
+export const GitGraphCell = Schema.Struct({
+  column: NonNegativeInt,
+  glyph: Schema.String,
+  lane: Schema.NullOr(NonNegativeInt),
+});
+export type GitGraphCell = typeof GitGraphCell.Type;
+
+export const GitGraphRow = Schema.Struct({
+  id: TrimmedNonEmptyStringSchema,
+  cells: Schema.Array(GitGraphCell),
+  commit: Schema.NullOr(GitGraphNode),
+});
+export type GitGraphRow = typeof GitGraphRow.Type;
+
 export const GitGraphRef = Schema.Struct({
   id: TrimmedNonEmptyStringSchema,
   targetOid: TrimmedNonEmptyStringSchema,
@@ -369,7 +384,8 @@ export const GitTopologySummary = Schema.Struct({
 export type GitTopologySummary = typeof GitTopologySummary.Type;
 
 export const GitRecentGraphResult = Schema.Struct({
-  nodes: Schema.Array(GitGraphNode),
+  rows: Schema.Array(GitGraphRow),
+  maxColumns: NonNegativeInt,
   refs: Schema.Array(GitGraphRef),
   topology: GitTopologySummary,
   truncated: Schema.Boolean,

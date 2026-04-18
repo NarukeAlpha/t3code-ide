@@ -55,7 +55,8 @@ export const GitHubPullRequestReview = Schema.Struct({
 });
 export type GitHubPullRequestReview = typeof GitHubPullRequestReview.Type;
 
-export const GitHubPullRequestSnapshot = Schema.Struct({
+const GitHubPullRequestSnapshotShape = {
+  repository: TrimmedNonEmptyString,
   number: PositiveInt,
   title: TrimmedNonEmptyString,
   url: Schema.String,
@@ -71,8 +72,16 @@ export const GitHubPullRequestSnapshot = Schema.Struct({
   updatedAt: IsoDateTime,
   comments: Schema.Array(GitHubPullRequestComment),
   reviews: Schema.Array(GitHubPullRequestReview),
-});
+} as const;
+
+export const GitHubPullRequestSnapshot = Schema.Struct(GitHubPullRequestSnapshotShape);
 export type GitHubPullRequestSnapshot = typeof GitHubPullRequestSnapshot.Type;
+
+export const GitHubPullRequestLocator = Schema.Struct({
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+});
+export type GitHubPullRequestLocator = typeof GitHubPullRequestLocator.Type;
 
 export const GitHubCheckBucket = Schema.Literals(["pass", "fail", "pending", "skipping", "cancel"]);
 export type GitHubCheckBucket = typeof GitHubCheckBucket.Type;
@@ -124,17 +133,24 @@ export const GitHubWorkspaceInput = Schema.Struct({
 });
 export type GitHubWorkspaceInput = typeof GitHubWorkspaceInput.Type;
 
-export const GitHubWorkspaceSnapshot = Schema.Struct({
-  availability: GitHubWorkspaceAvailability,
-  pullRequest: Schema.NullOr(GitHubPullRequestSnapshot),
+export const GitHubWorkspacePullRequest = Schema.Struct({
+  ...GitHubPullRequestSnapshotShape,
   checks: Schema.Array(GitHubCheckSummary),
   runs: Schema.Array(GitHubWorkflowRun),
+});
+export type GitHubWorkspacePullRequest = typeof GitHubWorkspacePullRequest.Type;
+
+export const GitHubWorkspaceSnapshot = Schema.Struct({
+  availability: GitHubWorkspaceAvailability,
+  pullRequests: Schema.Array(GitHubWorkspacePullRequest),
+  activePullRequest: Schema.NullOr(GitHubPullRequestLocator),
   fetchedAt: IsoDateTime,
 });
 export type GitHubWorkspaceSnapshot = typeof GitHubWorkspaceSnapshot.Type;
 
 export const GitHubPullRequestCommentInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
   number: PositiveInt,
   body: TrimmedNonEmptyString,
 });
@@ -149,6 +165,7 @@ export type GitHubPullRequestReviewEvent = typeof GitHubPullRequestReviewEvent.T
 
 export const GitHubPullRequestReviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
   number: PositiveInt,
   event: GitHubPullRequestReviewEvent,
   body: Schema.optional(Schema.String),
