@@ -597,11 +597,7 @@ export default function ProjectScriptsControl({
             {detectedScriptsQuery.isPending ? (
               <p className="text-sm text-muted-foreground">Loading project actions...</p>
             ) : detectedScriptsQuery.isError ? (
-              <p className="text-sm text-destructive">
-                {detectedScriptsQuery.error instanceof Error
-                  ? detectedScriptsQuery.error.message
-                  : "Could not load project actions."}
-              </p>
+              <p className="text-sm text-destructive">{detectedScriptsQuery.error.message}</p>
             ) : (
               <div className="space-y-4">
                 {detectedWarnings.length > 0 && (
