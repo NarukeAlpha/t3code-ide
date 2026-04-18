@@ -32,6 +32,7 @@ import { ServerConfig } from "./config.ts";
 import { GitCore } from "./git/Services/GitCore.ts";
 import { GitManager } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
+import { GitWorkspace } from "./git/Services/GitWorkspace.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
@@ -139,6 +140,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitManager = yield* GitManager;
       const git = yield* GitCore;
       const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+      const gitWorkspace = yield* GitWorkspace;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -881,6 +883,26 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             gitManager
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetRecentGraph]: (input) =>
+          observeRpcEffect(WS_METHODS.gitGetRecentGraph, gitWorkspace.getRecentGraph(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubGetWorkspace]: (input) =>
+          observeRpcEffect(WS_METHODS.githubGetWorkspace, gitWorkspace.getGitHubWorkspace(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubAddPullRequestComment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubAddPullRequestComment,
+            gitWorkspace.addPullRequestComment(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubSubmitPullRequestReview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubSubmitPullRequestReview,
+            gitWorkspace.submitPullRequestReview(input),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitListBranches]: (input) =>

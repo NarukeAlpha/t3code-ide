@@ -58,6 +58,7 @@ import {
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { GitWorkspace, type GitWorkspaceShape } from "./git/Services/GitWorkspace.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
 import {
   GitStatusBroadcaster,
@@ -325,6 +326,7 @@ const buildAppUnderTest = (options?: {
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
     gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
+    gitWorkspace?: Partial<GitWorkspaceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -451,6 +453,42 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GitWorkspace)({
+          getRecentGraph: () =>
+            Effect.succeed({
+              rows: [],
+              maxColumns: 0,
+              refs: [],
+              topology: {
+                headOid: null,
+                headBranch: null,
+                defaultBranch: null,
+                worktrees: [],
+              },
+              truncated: false,
+            }),
+          getGitHubWorkspace: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              pullRequests: [],
+              activePullRequest: null,
+              fetchedAt: new Date().toISOString(),
+            }),
+          addPullRequestComment: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          submitPullRequestReview: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          ...options?.layers?.gitWorkspace,
         }),
       ),
       Layer.provide(

@@ -31,6 +31,7 @@ import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
 import { GitCoreLive } from "./git/Layers/GitCore.ts";
 import { GitHubCliLive } from "./git/Layers/GitHubCli.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
+import { GitWorkspaceLive } from "./git/Layers/GitWorkspace.ts";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration.ts";
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
 import { GitManagerLive } from "./git/Layers/GitManager.ts";
@@ -189,9 +190,16 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(RoutingTextGenerationLive),
 );
 
+const GitWorkspaceLayerLive = GitWorkspaceLive.pipe(
+  Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitHubCliLive),
+  Layer.provideMerge(GitCoreLive),
+);
+
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
+  Layer.provideMerge(GitWorkspaceLayerLive),
   Layer.provideMerge(GitCoreLive),
 );
 

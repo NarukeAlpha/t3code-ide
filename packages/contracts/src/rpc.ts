@@ -27,6 +27,8 @@ import {
   GitPullInput,
   GitPullRequestRefInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
@@ -34,6 +36,14 @@ import {
   GitStatusResult,
   GitStatusStreamEvent,
 } from "./git.ts";
+import {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestReviewInput,
+  GitHubWorkspaceError,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -103,6 +113,12 @@ export const WS_METHODS = {
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetRecentGraph: "git.getRecentGraph",
+
+  // GitHub methods
+  githubGetWorkspace: "github.getWorkspace",
+  githubAddPullRequestComment: "github.addPullRequestComment",
+  githubSubmitPullRequestReview: "github.submitPullRequestReview",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -251,6 +267,33 @@ export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
   error: GitCommandError,
 });
 
+export const WsGitGetRecentGraphRpc = Rpc.make(WS_METHODS.gitGetRecentGraph, {
+  payload: GitRecentGraphInput,
+  success: GitRecentGraphResult,
+  error: GitCommandError,
+});
+
+export const WsGitHubGetWorkspaceRpc = Rpc.make(WS_METHODS.githubGetWorkspace, {
+  payload: GitHubWorkspaceInput,
+  success: GitHubWorkspaceSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubAddPullRequestCommentRpc = Rpc.make(WS_METHODS.githubAddPullRequestComment, {
+  payload: GitHubPullRequestCommentInput,
+  success: GitHubWorkspaceWriteResult,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubSubmitPullRequestReviewRpc = Rpc.make(
+  WS_METHODS.githubSubmitPullRequestReview,
+  {
+    payload: GitHubPullRequestReviewInput,
+    success: GitHubWorkspaceWriteResult,
+    error: GitHubWorkspaceError,
+  },
+);
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -377,6 +420,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,
   WsGitInitRpc,
+  WsGitGetRecentGraphRpc,
+  WsGitHubGetWorkspaceRpc,
+  WsGitHubAddPullRequestCommentRpc,
+  WsGitHubSubmitPullRequestReviewRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

@@ -7,7 +7,13 @@ import type {
 } from "@t3tools/contracts";
 import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  CloudUploadIcon,
+  GitBranchIcon,
+  GitCommitIcon,
+  InfoIcon,
+} from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import {
   buildGitActionProgressStages,
@@ -54,6 +60,7 @@ import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
 import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { GitRepositoryWorkspaceDialog } from "./GitRepositoryWorkspaceDialog";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -236,6 +243,7 @@ export default function GitActionsControl({
   const setThreadBranch = useStore((store) => store.setThreadBranch);
   const queryClient = useQueryClient();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [isRepositoryDialogOpen, setIsRepositoryDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
@@ -951,6 +959,11 @@ export default function GitActionsControl({
                   </MenuItem>
                 );
               })}
+              <div className="my-1 h-px bg-border/80" />
+              <MenuItem onClick={() => setIsRepositoryDialogOpen(true)}>
+                <GitBranchIcon />
+                Repository...
+              </MenuItem>
               {gitStatusForActions?.branch === null && (
                 <p className="px-2 py-1.5 text-xs text-warning">
                   Detached HEAD: create and checkout a branch to enable push and PR actions.
@@ -1139,6 +1152,13 @@ export default function GitActionsControl({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+
+      <GitRepositoryWorkspaceDialog
+        open={isRepositoryDialogOpen}
+        onOpenChange={setIsRepositoryDialogOpen}
+        environmentId={activeEnvironmentId}
+        cwd={gitCwd}
+      />
 
       <Dialog
         open={pendingDefaultBranchAction !== null}
