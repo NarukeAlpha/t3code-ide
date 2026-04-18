@@ -14,6 +14,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectDetectedScriptsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -50,6 +51,7 @@ import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
+import { ProjectDetectedScriptCatalog } from "./project/Services/ProjectDetectedScriptCatalog.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
@@ -147,6 +149,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const projectDetectedScriptCatalog = yield* ProjectDetectedScriptCatalog;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
@@ -780,6 +783,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 (cause) =>
                   new ProjectSearchEntriesError({
                     message: `Failed to search workspace entries: ${cause.detail}`,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListDetectedScripts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDetectedScripts,
+            projectDetectedScriptCatalog.list(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectDetectedScriptsError({
+                    message: `Failed to list project actions: ${cause.detail}`,
                     cause,
                   }),
               ),

@@ -2,6 +2,7 @@ import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   type ClaudeAgentEffort,
+  type DetectedProjectScript,
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
@@ -18,7 +19,6 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
-  TerminalOpenInput,
 } from "@t3tools/contracts";
 import {
   parseScopedThreadKey,
@@ -82,7 +82,6 @@ import {
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
-  DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
@@ -90,6 +89,7 @@ import {
   type TurnDiffSummary,
 } from "../types";
 import { useTheme } from "../hooks/useTheme";
+import { useProjectActionRunner } from "../hooks/useProjectActionRunner";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useCommandPaletteStore } from "../commandPaletteStore";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
@@ -311,9 +311,6 @@ function formatOutgoingPrompt(params: {
   }
   return params.text;
 }
-const SCRIPT_TERMINAL_COLS = 120;
-const SCRIPT_TERMINAL_ROWS = 30;
-
 type ChatViewProps =
   | {
       environmentId: EnvironmentId;
@@ -1627,8 +1624,28 @@ export default function ChatView(props: ChatViewProps) {
       terminalState.terminalIds.length,
     ],
   );
+  const runProjectAction = useProjectActionRunner({
+    environmentId,
+    activeThreadId,
+    activeThreadRef,
+    activeThread,
+    activeProject,
+    terminalState,
+    setTerminalLaunchContext,
+    setTerminalOpen,
+    storeNewTerminal,
+    storeSetActiveTerminal,
+    requestTerminalFocus: () => setTerminalFocusRequestId((value) => value + 1),
+    setThreadError,
+    rememberLastInvokedScript: (projectId, scriptId) => {
+      setLastInvokedScriptByProjectId((current) => {
+        if (current[projectId] === scriptId) return current;
+        return { ...current, [projectId]: scriptId };
+      });
+    },
+  });
   const runProjectScript = useCallback(
-    async (
+    (
       script: ProjectScript,
       options?: {
         cwd?: string;
@@ -1637,99 +1654,38 @@ export default function ChatView(props: ChatViewProps) {
         preferNewTerminal?: boolean;
         rememberAsLastInvoked?: boolean;
       },
-    ) => {
-      const api = readEnvironmentApi(environmentId);
-      if (!api || !activeThreadId || !activeProject || !activeThread) return;
-      if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByProjectId((current) => {
-          if (current[activeProject.id] === script.id) return current;
-          return { ...current, [activeProject.id]: script.id };
-        });
-      }
-      const targetCwd = options?.cwd ?? gitCwd ?? activeProject.cwd;
-      const baseTerminalId =
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
-        DEFAULT_THREAD_TERMINAL_ID;
-      const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
-      const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-      const shouldCreateNewTerminal = wantsNewTerminal;
-      const targetTerminalId = shouldCreateNewTerminal
-        ? `terminal-${randomUUID()}`
-        : baseTerminalId;
-      const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
-
-      setTerminalLaunchContext({
-        threadId: activeThreadId,
-        cwd: targetCwd,
-        worktreePath: targetWorktreePath,
-      });
-      setTerminalOpen(true);
-      if (!activeThreadRef) {
-        return;
-      }
-      if (shouldCreateNewTerminal) {
-        storeNewTerminal(activeThreadRef, targetTerminalId);
-      } else {
-        storeSetActiveTerminal(activeThreadRef, targetTerminalId);
-      }
-      setTerminalFocusRequestId((value) => value + 1);
-
-      const runtimeEnv = projectScriptRuntimeEnv({
-        project: {
-          cwd: activeProject.cwd,
+    ) =>
+      runProjectAction(
+        {
+          name: script.name,
+          command: script.command,
+          scriptId: script.id,
         },
-        worktreePath: targetWorktreePath,
-        ...(options?.env ? { extraEnv: options.env } : {}),
-      });
-      const openTerminalInput: TerminalOpenInput = shouldCreateNewTerminal
-        ? {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-            cols: SCRIPT_TERMINAL_COLS,
-            rows: SCRIPT_TERMINAL_ROWS,
-          }
-        : {
-            threadId: activeThreadId,
-            terminalId: targetTerminalId,
-            cwd: targetCwd,
-            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
-            env: runtimeEnv,
-          };
-
-      try {
-        await api.terminal.open(openTerminalInput);
-        await api.terminal.write({
-          threadId: activeThreadId,
-          terminalId: targetTerminalId,
-          data: `${script.command}\r`,
-        });
-      } catch (error) {
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
-      }
-    },
-    [
-      activeProject,
-      activeThread,
-      activeThreadId,
-      activeThreadRef,
-      gitCwd,
-      setTerminalOpen,
-      setThreadError,
-      storeNewTerminal,
-      storeSetActiveTerminal,
-      setLastInvokedScriptByProjectId,
-      environmentId,
-      terminalState.activeTerminalId,
-      terminalState.runningTerminalIds,
-      terminalState.terminalIds,
-    ],
+        options,
+      ),
+    [runProjectAction],
+  );
+  const runDetectedProjectScript = useCallback(
+    (
+      script: DetectedProjectScript,
+      options?: {
+        cwd?: string;
+        env?: Record<string, string>;
+        worktreePath?: string | null;
+        preferNewTerminal?: boolean;
+      },
+    ) =>
+      runProjectAction(
+        {
+          name: script.displayName,
+          command: script.command,
+        },
+        {
+          ...options,
+          rememberAsLastInvoked: false,
+        },
+      ),
+    [runProjectAction],
   );
 
   const persistProjectScripts = useCallback(
@@ -3223,6 +3179,7 @@ export default function ChatView(props: ChatViewProps) {
           {...(routeKind === "draft" && draftId ? { draftId } : {})}
           activeThreadTitle={activeThread.title}
           activeProjectName={activeProject?.name}
+          activeProjectCwd={activeProject?.cwd}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
           activeProjectScripts={activeProject?.scripts}
@@ -3238,6 +3195,7 @@ export default function ChatView(props: ChatViewProps) {
           gitCwd={gitCwd}
           diffOpen={diffOpen}
           onRunProjectScript={runProjectScript}
+          onRunDetectedProjectScript={runDetectedProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}

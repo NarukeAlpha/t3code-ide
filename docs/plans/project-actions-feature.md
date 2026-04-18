@@ -249,7 +249,7 @@ Returned rows must remain stable and deterministic:
 ### Current default commands
 
 - JS/TS package scripts
-  - package-manager aware `run` command
+  - all scripts within `package.json`
 - Zig
   - `zig build`
 - Gradle

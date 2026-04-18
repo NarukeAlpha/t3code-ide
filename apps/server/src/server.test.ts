@@ -88,6 +88,7 @@ import {
   type BrowserTraceCollectorShape,
 } from "./observability/Services/BrowserTraceCollector.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
+import { ProjectDetectedScriptCatalogLive } from "./project/Layers/ProjectDetectedScriptCatalog.ts";
 import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerShape,
@@ -192,16 +193,6 @@ const makeDefaultOrchestrationThreadShell = (
     ...overrides,
   };
 };
-
-const workspaceAndProjectServicesLayer = Layer.mergeAll(
-  WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
-  WorkspaceFileSystemLive.pipe(
-    Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
-  ),
-  ProjectFaviconResolverLive,
-);
 
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
@@ -394,6 +385,7 @@ const buildAppUnderTest = (options?: {
         Layer.provide(WorkspacePathsLive),
         Layer.provide(workspaceEntriesLayer),
       ),
+      ProjectDetectedScriptCatalogLive.pipe(Layer.provide(WorkspacePathsLive)),
       ProjectFaviconResolverLive,
     );
     const gitStatusBroadcasterLayer = options?.layers?.gitStatusBroadcaster
@@ -2109,6 +2101,46 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         result.failure.message,
         "Workspace root does not exist: /definitely/not/a/real/workspace/path",
       );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc projects.listDetectedScripts", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "t3-ws-project-detected-scripts-",
+      });
+      yield* fs.writeFileString(
+        path.join(workspaceDir, "package.json"),
+        JSON.stringify({
+          scripts: {
+            dev: "vite",
+          },
+        }),
+      );
+      yield* fs.writeFileString(path.join(workspaceDir, "go.mod"), "module example/app\n");
+
+      yield* buildAppUnderTest();
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.projectsListDetectedScripts]({
+            cwd: workspaceDir,
+          }),
+        ),
+      );
+
+      assert.deepEqual(
+        response.scripts.map((script) => script.source),
+        ["package_json", "go", "go", "go"],
+      );
+      assert.deepEqual(
+        response.scripts.map((script) => script.command),
+        ["npm run dev", "go build", "go run .", "go test"],
+      );
+      assert.deepEqual(response.warnings, []);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
