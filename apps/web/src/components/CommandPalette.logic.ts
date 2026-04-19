@@ -1,9 +1,9 @@
 import { type KeybindingCommand, type FilesystemBrowseEntry } from "@t3tools/contracts";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import { type ReactNode } from "react";
-import { sortThreads } from "../lib/threadSort";
-import { formatRelativeTimeLabel } from "../timestampFormat";
-import { type Project, type SidebarThreadSummary, type Thread } from "../types";
+import { sortThreads } from "~/lib/threadSort";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { type Project, type SidebarThreadSummary, type Thread } from "~/types";
 
 export const RECENT_THREAD_LIMIT = 12;
 export const ITEM_ICON_CLASS = "size-4 text-muted-foreground/80";
@@ -43,7 +43,10 @@ export interface CommandPaletteGroup {
   readonly items: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
 }
 
+export type CommandPaletteViewKind = "add-project-browse";
+
 export interface CommandPaletteView {
+  readonly kind?: CommandPaletteViewKind;
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;

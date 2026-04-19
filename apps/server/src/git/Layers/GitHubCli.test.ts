@@ -58,6 +58,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -116,6 +117,7 @@ layer("GitHubCliLive", (it) => {
         baseRefName: "main",
         headRefName: "feature/pr-threads",
         state: "open",
+        updatedAt: null,
         isCrossRepository: true,
         headRepositoryNameWithOwner: "octocat/codething-mvp",
         headRepositoryOwnerLogin: "octocat",
@@ -156,8 +158,9 @@ layer("GitHubCliLive", (it) => {
 
       const result = yield* Effect.gen(function* () {
         const gh = yield* GitHubCli;
-        return yield* gh.listOpenPullRequests({
+        return yield* gh.listPullRequests({
           cwd: "/repo",
+          repository: "pingdotgg/codething-mvp",
           headSelector: "feature/pr-list",
         });
       });
@@ -170,8 +173,55 @@ layer("GitHubCliLive", (it) => {
           baseRefName: "main",
           headRefName: "feature/pr-list",
           state: "open",
+          updatedAt: null,
         },
       ]);
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        [
+          "pr",
+          "list",
+          "--repo",
+          "pingdotgg/codething-mvp",
+          "--head",
+          "feature/pr-list",
+          "--state",
+          "open",
+          "--limit",
+          "1",
+          "--json",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        ],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
+    }),
+  );
+
+  it.effect("reads the current repository name with owner", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          nameWithOwner: "octocat/codething-mvp",
+        }),
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.getRepositoryNameWithOwner({
+          cwd: "/repo",
+        });
+      });
+
+      assert.deepStrictEqual(result, "octocat/codething-mvp");
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        ["repo", "view", "--json", "nameWithOwner"],
+        expect.objectContaining({ cwd: "/repo" }),
+      );
     }),
   );
 

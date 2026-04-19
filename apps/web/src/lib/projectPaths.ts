@@ -120,6 +120,37 @@ export function isUnsupportedWindowsProjectPath(value: string, platform: string)
   return isWindowsAbsolutePath(value) && !isWindowsPlatform(platform);
 }
 
+export function resolveFilesystemBrowseQuery(
+  value: string,
+  options?: {
+    platform?: string;
+    fallbackDirectory?: string | null;
+    treatBareAsRelative?: boolean;
+  },
+): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return trimmed;
+  }
+
+  const platform =
+    options?.platform ?? (typeof navigator === "undefined" ? "" : navigator.platform);
+  if (isFilesystemBrowseQuery(trimmed, platform) || !options?.treatBareAsRelative) {
+    return trimmed;
+  }
+
+  if (isExplicitRelativePath(trimmed)) {
+    return trimmed;
+  }
+
+  const fallbackDirectory = options.fallbackDirectory?.trim();
+  if (!fallbackDirectory) {
+    return trimmed;
+  }
+
+  return `${ensureBrowseDirectoryPath(fallbackDirectory)}${trimmed.replace(/^[\\/]+/, "")}`;
+}
+
 export function normalizeProjectPathForDispatch(value: string): string {
   return trimTrailingPathSeparators(value.trim());
 }

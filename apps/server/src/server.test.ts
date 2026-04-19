@@ -58,6 +58,7 @@ import {
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { GitWorkspace, type GitWorkspaceShape } from "./git/Services/GitWorkspace.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
 import {
   GitStatusBroadcaster,
@@ -88,6 +89,10 @@ import {
   type BrowserTraceCollectorShape,
 } from "./observability/Services/BrowserTraceCollector.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
+import {
+  ProjectDetectedScriptCatalog,
+  type ProjectDetectedScriptCatalogShape,
+} from "./project/Services/ProjectDetectedScriptCatalog.ts";
 import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerShape,
@@ -325,11 +330,13 @@ const buildAppUnderTest = (options?: {
     gitCore?: Partial<GitCoreShape>;
     gitManager?: Partial<GitManagerShape>;
     gitStatusBroadcaster?: Partial<GitStatusBroadcasterShape>;
+    gitWorkspace?: Partial<GitWorkspaceShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    projectDetectedScriptCatalog?: Partial<ProjectDetectedScriptCatalogShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -449,6 +456,42 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
+        Layer.mock(GitWorkspace)({
+          getRecentGraph: () =>
+            Effect.succeed({
+              rows: [],
+              maxColumns: 0,
+              refs: [],
+              topology: {
+                headOid: null,
+                headBranch: null,
+                defaultBranch: null,
+                worktrees: [],
+              },
+              truncated: false,
+            }),
+          getGitHubWorkspace: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              pullRequests: [],
+              activePullRequest: null,
+              fetchedAt: new Date().toISOString(),
+            }),
+          addPullRequestComment: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          submitPullRequestReview: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          ...options?.layers?.gitWorkspace,
+        }),
+      ),
+      Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
         }),
@@ -480,6 +523,16 @@ const buildAppUnderTest = (options?: {
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProjectDetectedScriptCatalog)({
+          list: () =>
+            Effect.succeed({
+              scripts: [],
+              warnings: [],
+            }),
+          ...options?.layers?.projectDetectedScriptCatalog,
         }),
       ),
       Layer.provide(

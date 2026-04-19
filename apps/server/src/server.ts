@@ -31,6 +31,7 @@ import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
 import { GitCoreLive } from "./git/Layers/GitCore.ts";
 import { GitHubCliLive } from "./git/Layers/GitHubCli.ts";
 import { GitStatusBroadcasterLive } from "./git/Layers/GitStatusBroadcaster.ts";
+import { GitWorkspaceLive } from "./git/Layers/GitWorkspace.ts";
 import { RoutingTextGenerationLive } from "./git/Layers/RoutingTextGeneration.ts";
 import { TerminalManagerLive } from "./terminal/Layers/Manager.ts";
 import { GitManagerLive } from "./git/Layers/GitManager.ts";
@@ -45,6 +46,7 @@ import { ThreadDeletionReactorLive } from "./orchestration/Layers/ThreadDeletion
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry.ts";
 import { ServerSettingsLive } from "./serverSettings.ts";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver.ts";
+import { ProjectDetectedScriptCatalogLive } from "./project/Layers/ProjectDetectedScriptCatalog.ts";
 import { RepositoryIdentityResolverLive } from "./project/Layers/RepositoryIdentityResolver.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
@@ -189,9 +191,16 @@ const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(RoutingTextGenerationLive),
 );
 
+const GitWorkspaceLayerLive = GitWorkspaceLive.pipe(
+  Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitHubCliLive),
+  Layer.provideMerge(GitCoreLive),
+);
+
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitStatusBroadcasterLive.pipe(Layer.provide(GitManagerLayerLive))),
+  Layer.provideMerge(GitWorkspaceLayerLive),
   Layer.provideMerge(GitCoreLive),
 );
 
@@ -235,6 +244,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
+  Layer.provideMerge(ProjectDetectedScriptCatalogLive),
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),

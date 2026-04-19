@@ -14,6 +14,7 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_WS_METHODS,
+  ProjectDetectedScriptsError,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
@@ -32,6 +33,7 @@ import { ServerConfig } from "./config.ts";
 import { GitCore } from "./git/Services/GitCore.ts";
 import { GitManager } from "./git/Services/GitManager.ts";
 import { GitStatusBroadcaster } from "./git/Services/GitStatusBroadcaster.ts";
+import { GitWorkspace } from "./git/Services/GitWorkspace.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
@@ -50,6 +52,7 @@ import { TerminalManager } from "./terminal/Services/Manager.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem.ts";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths.ts";
+import { ProjectDetectedScriptCatalog } from "./project/Services/ProjectDetectedScriptCatalog.ts";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner.ts";
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
@@ -139,6 +142,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitManager = yield* GitManager;
       const git = yield* GitCore;
       const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+      const gitWorkspace = yield* GitWorkspace;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -147,6 +151,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const projectDetectedScriptCatalog = yield* ProjectDetectedScriptCatalog;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
@@ -802,6 +807,20 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.projectsListDetectedScripts]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListDetectedScripts,
+            projectDetectedScriptCatalog.list(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectDetectedScriptsError({
+                    message: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
             "rpc.aggregate": "workspace",
@@ -917,6 +936,26 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.gitInit,
             git.initRepo(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetRecentGraph]: (input) =>
+          observeRpcEffect(WS_METHODS.gitGetRecentGraph, gitWorkspace.getRecentGraph(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubGetWorkspace]: (input) =>
+          observeRpcEffect(WS_METHODS.githubGetWorkspace, gitWorkspace.getGitHubWorkspace(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubAddPullRequestComment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubAddPullRequestComment,
+            gitWorkspace.addPullRequestComment(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubSubmitPullRequestReview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubSubmitPullRequestReview,
+            gitWorkspace.submitPullRequestReview(input),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>

@@ -282,6 +282,34 @@ export function createModelSelection(
   }
 }
 
+/**
+ * Resolve the actual API model identifier from a model selection.
+ *
+ * Provider-aware: each provider can map `contextWindow` (or other options)
+ * to whatever the API requires — a model-id suffix, a separate parameter, etc.
+ * The canonical slug stored in the selection stays unchanged so the
+ * capabilities system keeps working.
+ *
+ * Expects `contextWindow` to already be resolved (via `resolveContextWindow`)
+ * to the effective value, not stripped to `undefined` for defaults.
+ */
+export function resolveApiModelId(modelSelection: ModelSelection): string {
+  switch (modelSelection.provider) {
+    case "claudeAgent": {
+      const options = modelSelection.options as ClaudeModelOptions | undefined;
+      switch (options?.contextWindow) {
+        case "1m":
+          return `${modelSelection.model}[1m]`;
+        default:
+          return modelSelection.model;
+      }
+    }
+    default: {
+      return modelSelection.model;
+    }
+  }
+}
+
 export function applyClaudePromptEffortPrefix(
   text: string,
   effort: ClaudeAgentEffort | null | undefined,

@@ -27,6 +27,8 @@ import {
   GitPullInput,
   GitPullRequestRefInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
@@ -34,6 +36,14 @@ import {
   GitStatusResult,
   GitStatusStreamEvent,
 } from "./git.ts";
+import {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestReviewInput,
+  GitHubWorkspaceError,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -49,6 +59,9 @@ import {
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
 import {
+  ListDetectedProjectScriptsInput,
+  ListDetectedProjectScriptsResult,
+  ProjectDetectedScriptsError,
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -84,6 +97,7 @@ export const WS_METHODS = {
   projectsRemove: "projects.remove",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsListDetectedScripts: "projects.listDetectedScripts",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -103,6 +117,12 @@ export const WS_METHODS = {
   gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetRecentGraph: "git.getRecentGraph",
+
+  // GitHub methods
+  githubGetWorkspace: "github.getWorkspace",
+  githubAddPullRequestComment: "github.addPullRequestComment",
+  githubSubmitPullRequestReview: "github.submitPullRequestReview",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -166,6 +186,12 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
   error: ProjectWriteFileError,
+});
+
+export const WsProjectsListDetectedScriptsRpc = Rpc.make(WS_METHODS.projectsListDetectedScripts, {
+  payload: ListDetectedProjectScriptsInput,
+  success: ListDetectedProjectScriptsResult,
+  error: ProjectDetectedScriptsError,
 });
 
 export const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
@@ -250,6 +276,33 @@ export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
   payload: GitInitInput,
   error: GitCommandError,
 });
+
+export const WsGitGetRecentGraphRpc = Rpc.make(WS_METHODS.gitGetRecentGraph, {
+  payload: GitRecentGraphInput,
+  success: GitRecentGraphResult,
+  error: GitCommandError,
+});
+
+export const WsGitHubGetWorkspaceRpc = Rpc.make(WS_METHODS.githubGetWorkspace, {
+  payload: GitHubWorkspaceInput,
+  success: GitHubWorkspaceSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubAddPullRequestCommentRpc = Rpc.make(WS_METHODS.githubAddPullRequestComment, {
+  payload: GitHubPullRequestCommentInput,
+  success: GitHubWorkspaceWriteResult,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubSubmitPullRequestReviewRpc = Rpc.make(
+  WS_METHODS.githubSubmitPullRequestReview,
+  {
+    payload: GitHubPullRequestReviewInput,
+    success: GitHubWorkspaceWriteResult,
+    error: GitHubWorkspaceError,
+  },
+);
 
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
@@ -363,6 +416,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsListDetectedScriptsRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsSubscribeGitStatusRpc,
@@ -377,6 +431,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitCreateBranchRpc,
   WsGitCheckoutRpc,
   WsGitInitRpc,
+  WsGitGetRecentGraphRpc,
+  WsGitHubGetWorkspaceRpc,
+  WsGitHubAddPullRequestCommentRpc,
+  WsGitHubSubmitPullRequestReviewRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,

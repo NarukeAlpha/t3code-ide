@@ -12,6 +12,8 @@ import type {
   GitListBranchesResult,
   GitPullInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitStatusInput,
@@ -20,6 +22,15 @@ import type {
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestReviewInput,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github.ts";
+import type {
+  ListDetectedProjectScriptsInput,
+  ListDetectedProjectScriptsResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -244,6 +255,9 @@ export interface EnvironmentApi {
   projects: {
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    listDetectedScripts: (
+      input: ListDetectedProjectScriptsInput,
+    ) => Promise<ListDetectedProjectScriptsResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -261,6 +275,7 @@ export interface EnvironmentApi {
     ) => Promise<GitPreparePullRequestThreadResult>;
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+    getRecentGraph: (input: GitRecentGraphInput) => Promise<GitRecentGraphResult>;
     onStatus: (
       input: GitStatusInput,
       callback: (status: GitStatusResult) => void,
@@ -268,6 +283,15 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  github: {
+    getWorkspace: (input: GitHubWorkspaceInput) => Promise<GitHubWorkspaceSnapshot>;
+    addPullRequestComment: (
+      input: GitHubPullRequestCommentInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
+    submitPullRequestReview: (
+      input: GitHubPullRequestReviewInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
