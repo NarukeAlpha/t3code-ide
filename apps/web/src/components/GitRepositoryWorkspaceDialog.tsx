@@ -78,16 +78,19 @@ interface GitRepositoryWorkspaceDialogProps {
   cwd: string | null;
 }
 
-const GRAPH_CELL_WIDTH_PX = 14;
+const GRAPH_CELL_WIDTH_PX = 18;
+const GRAPH_ROW_HEIGHT_PX = 28;
+const GRAPH_NODE_RADIUS_PX = 4.5;
+const GRAPH_STROKE_WIDTH_PX = 1.75;
 const GRAPH_LANE_COLORS = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#7c3aed",
-  "#db2777",
-  "#0891b2",
-  "#65a30d",
-  "#ea580c",
+  "#2f9e44",
+  "#1971c2",
+  "#e8590c",
+  "#ae3ec9",
+  "#d6336c",
+  "#099268",
+  "#1098ad",
+  "#f08c00",
 ] as const;
 const DEFAULT_GRAPH_LIMIT = 300;
 const MAX_GRAPH_LIMIT = 500;
@@ -414,6 +417,144 @@ function FilterSelect({
   );
 }
 
+function GitGraphRowSvg({
+  row,
+  maxColumns,
+}: {
+  row: GitRecentGraphResult["rows"][number];
+  maxColumns: number;
+}) {
+  const columns = Math.max(maxColumns, 1);
+  const width = columns * GRAPH_CELL_WIDTH_PX;
+  const height = GRAPH_ROW_HEIGHT_PX;
+  const midY = height / 2;
+  const stroke = GRAPH_STROKE_WIDTH_PX;
+
+  const elements: ReactNode[] = [];
+  for (const cell of row.cells) {
+    const cx = cell.column * GRAPH_CELL_WIDTH_PX + GRAPH_CELL_WIDTH_PX / 2;
+    const color = graphLaneColor(cell.lane ?? 0);
+    const key = `${row.id}-${cell.column}-${cell.glyph}`;
+
+    switch (cell.glyph) {
+      case "|":
+        elements.push(
+          <line
+            key={key}
+            x1={cx}
+            y1={0}
+            x2={cx}
+            y2={height}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        break;
+      case "/":
+        elements.push(
+          <line
+            key={key}
+            x1={cx + GRAPH_CELL_WIDTH_PX / 2}
+            y1={0}
+            x2={cx - GRAPH_CELL_WIDTH_PX / 2}
+            y2={height}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        break;
+      case "\\":
+        elements.push(
+          <line
+            key={key}
+            x1={cx - GRAPH_CELL_WIDTH_PX / 2}
+            y1={0}
+            x2={cx + GRAPH_CELL_WIDTH_PX / 2}
+            y2={height}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        break;
+      case "_":
+      case "-":
+        elements.push(
+          <line
+            key={key}
+            x1={cx - GRAPH_CELL_WIDTH_PX / 2}
+            y1={midY}
+            x2={cx + GRAPH_CELL_WIDTH_PX / 2}
+            y2={midY}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        break;
+      case "*":
+      case "o":
+      case "O": {
+        const hasParent = (row.commit?.parentOids.length ?? 0) > 0;
+        elements.push(
+          <line
+            key={`${key}-up`}
+            x1={cx}
+            y1={0}
+            x2={cx}
+            y2={midY}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        if (hasParent) {
+          elements.push(
+            <line
+              key={`${key}-down`}
+              x1={cx}
+              y1={midY}
+              x2={cx}
+              y2={height}
+              stroke={color}
+              strokeWidth={stroke}
+              strokeLinecap="round"
+            />,
+          );
+        }
+        elements.push(
+          <circle
+            key={`${key}-node`}
+            cx={cx}
+            cy={midY}
+            r={GRAPH_NODE_RADIUS_PX}
+            fill={color}
+            stroke="var(--background)"
+            strokeWidth={1.25}
+          />,
+        );
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-hidden="true"
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      {elements}
+    </svg>
+  );
+}
+
 function GitGraphPanel({
   graph,
   selectedCommitOid,
@@ -519,20 +660,15 @@ function GitGraphPanel({
       }
     >
       <div className="h-full overflow-auto px-4 py-4">
-        <div className="min-w-[56rem] space-y-1">
+        <div className="min-w-[56rem]">
           {graph.rows.map((row) => {
             const refs = row.commit ? (refsByOid.get(row.commit.oid) ?? []) : [];
-            const cellsByColumn = new Map(row.cells.map((cell) => [cell.column, cell]));
-            const columns = Array.from(
-              { length: Math.max(graph.maxColumns, 1) },
-              (_, graphColumn) => graphColumn,
-            );
             const isSelected = row.commit?.oid === selectedCommit?.oid;
 
             return (
               <div
                 key={row.id}
-                className={`grid items-start gap-3 rounded-md px-2 py-1.5 ${
+                className={`grid items-stretch gap-3 rounded-md px-2 ${
                   row.commit ? "cursor-pointer hover:bg-muted/24" : ""
                 } ${isSelected ? "bg-muted/36 ring-1 ring-border" : ""}`}
                 onClick={() => {
@@ -542,25 +678,12 @@ function GitGraphPanel({
                 }}
                 style={{ gridTemplateColumns: `${graphPrefixWidth}px minmax(0,1fr)` }}
               >
-                <div className="font-mono text-[13px] leading-6">
-                  {columns.map((graphColumn) => {
-                    const cell = cellsByColumn.get(graphColumn);
-                    return (
-                      <span
-                        key={`${row.id}-${graphColumn}`}
-                        className="inline-block text-center"
-                        style={{
-                          width: `${GRAPH_CELL_WIDTH_PX}px`,
-                          color: cell ? graphLaneColor(cell.lane ?? 0) : undefined,
-                        }}
-                      >
-                        {cell?.glyph ?? " "}
-                      </span>
-                    );
-                  })}
-                </div>
+                <GitGraphRowSvg row={row} maxColumns={graph.maxColumns} />
                 {row.commit ? (
-                  <div className="min-w-0 py-0.5">
+                  <div
+                    className="flex min-w-0 flex-col justify-center"
+                    style={{ minHeight: `${GRAPH_ROW_HEIGHT_PX}px` }}
+                  >
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <span className="truncate font-medium text-sm">{row.commit.subject}</span>
                       {refs.map((ref) => (
@@ -569,14 +692,14 @@ function GitGraphPanel({
                         </Badge>
                       ))}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
                       <span>{row.commit.shortOid}</span>
                       <span>{row.commit.authorName}</span>
                       <span>{formatDateTime(row.commit.authoredAt)}</span>
                     </div>
                   </div>
                 ) : (
-                  <div />
+                  <div style={{ minHeight: `${GRAPH_ROW_HEIGHT_PX}px` }} />
                 )}
               </div>
             );
