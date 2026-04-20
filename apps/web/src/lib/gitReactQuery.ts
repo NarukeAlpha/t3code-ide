@@ -12,8 +12,8 @@ import {
   queryOptions,
   type QueryClient,
 } from "@tanstack/react-query";
-import { ensureEnvironmentApi } from "../environmentApi";
-import { requireEnvironmentConnection } from "../environments/runtime";
+import { ensureEnvironmentApi } from "~/environmentApi";
+import { requireEnvironmentConnection } from "~/environments/runtime";
 
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;

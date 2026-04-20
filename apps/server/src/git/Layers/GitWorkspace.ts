@@ -1680,8 +1680,8 @@ export const makeGitWorkspace = Effect.gen(function* () {
         });
       }
 
-      let repository: string | null = null;
-      let targetLabel = "";
+      let repository: string | null;
+      let targetLabel: string;
       let resolvedSha: string | null = null;
       let isStale = false;
       let unavailableReason: string | null = null;

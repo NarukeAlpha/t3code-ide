@@ -118,7 +118,7 @@ const makeGitHubCli = Effect.sync(() => {
       catch: (error) => normalizeGitHubCliError("execute", error),
     });
 
-  const service = {
+  return {
     execute,
     listPullRequests: (input) =>
       execute({
@@ -257,8 +257,6 @@ const makeGitHubCli = Effect.sync(() => {
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
       }).pipe(Effect.asVoid),
   } satisfies GitHubCliShape;
-
-  return service;
 });
 
 export const GitHubCliLive = Layer.effect(GitHubCli, makeGitHubCli);

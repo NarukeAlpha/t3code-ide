@@ -148,18 +148,17 @@ function graphRefSortKey(type: GitGraphRef["type"]) {
 }
 
 function gitRefBadgeVariant(ref: GitGraphRef) {
-  switch (ref.type) {
-    case "head":
-      return "default";
-    case "worktree":
-      return "info";
-    case "branch":
-      return ref.current ? "success" : "outline";
-    case "remote":
-      return "secondary";
-    case "tag":
-      return "warning";
+  if (ref.type === "branch") {
+    return ref.current ? "success" : "outline";
   }
+  return (
+    {
+      head: "default",
+      worktree: "info",
+      remote: "secondary",
+      tag: "warning",
+    } as const
+  )[ref.type];
 }
 
 function checkBucketVariant(bucket: GitHubCheckSummary["bucket"]) {
