@@ -71,6 +71,16 @@ export interface WsRpcClient {
   readonly filesystem: {
     readonly browse: RpcUnaryMethod<typeof WS_METHODS.filesystemBrowse>;
   };
+  readonly database: {
+    readonly listConnections: RpcUnaryMethod<typeof WS_METHODS.databaseListConnections>;
+    readonly upsertConnection: RpcUnaryMethod<typeof WS_METHODS.databaseUpsertConnection>;
+    readonly deleteConnection: RpcUnaryMethod<typeof WS_METHODS.databaseDeleteConnection>;
+    readonly testConnection: RpcUnaryMethod<typeof WS_METHODS.databaseTestConnection>;
+    readonly listSchemas: RpcUnaryMethod<typeof WS_METHODS.databaseListSchemas>;
+    readonly listTables: RpcUnaryMethod<typeof WS_METHODS.databaseListTables>;
+    readonly previewTable: RpcUnaryMethod<typeof WS_METHODS.databasePreviewTable>;
+    readonly executeQuery: RpcUnaryMethod<typeof WS_METHODS.databaseExecuteQuery>;
+  };
   readonly shell: {
     readonly openInEditor: (input: {
       readonly cwd: Parameters<LocalApi["shell"]["openInEditor"]>[0];
@@ -150,6 +160,24 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     },
     filesystem: {
       browse: (input) => transport.request((client) => client[WS_METHODS.filesystemBrowse](input)),
+    },
+    database: {
+      listConnections: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseListConnections](input)),
+      upsertConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseUpsertConnection](input)),
+      deleteConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseDeleteConnection](input)),
+      testConnection: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseTestConnection](input)),
+      listSchemas: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseListSchemas](input)),
+      listTables: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseListTables](input)),
+      previewTable: (input) =>
+        transport.request((client) => client[WS_METHODS.databasePreviewTable](input)),
+      executeQuery: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseExecuteQuery](input)),
     },
     shell: {
       openInEditor: (input) =>

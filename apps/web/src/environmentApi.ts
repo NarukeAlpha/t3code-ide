@@ -23,6 +23,16 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     filesystem: {
       browse: rpcClient.filesystem.browse,
     },
+    database: {
+      listConnections: rpcClient.database.listConnections,
+      upsertConnection: rpcClient.database.upsertConnection,
+      deleteConnection: rpcClient.database.deleteConnection,
+      testConnection: rpcClient.database.testConnection,
+      listSchemas: rpcClient.database.listSchemas,
+      listTables: rpcClient.database.listTables,
+      previewTable: rpcClient.database.previewTable,
+      executeQuery: rpcClient.database.executeQuery,
+    },
     git: {
       pull: rpcClient.git.pull,
       refreshStatus: rpcClient.git.refreshStatus,

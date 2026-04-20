@@ -319,6 +319,8 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      databaseOpen?: boolean;
+      onToggleDatabase?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "server";
       draftId?: never;
@@ -327,6 +329,8 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      databaseOpen?: boolean;
+      onToggleDatabase?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "draft";
       draftId: DraftId;
@@ -589,6 +593,8 @@ export default function ChatView(props: ChatViewProps) {
     threadId,
     routeKind,
     onDiffPanelOpen,
+    databaseOpen = false,
+    onToggleDatabase,
     reserveTitleBarControlInset = true,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
@@ -1479,6 +1485,9 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     if (!diffOpen) {
+      if (databaseOpen) {
+        onToggleDatabase?.();
+      }
       onDiffPanelOpen?.();
     }
     void navigate({
@@ -1493,7 +1502,16 @@ export default function ChatView(props: ChatViewProps) {
         return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
       },
     });
-  }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  }, [
+    databaseOpen,
+    diffOpen,
+    environmentId,
+    isServerThread,
+    navigate,
+    onDiffPanelOpen,
+    onToggleDatabase,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3237,12 +3255,14 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          databaseOpen={databaseOpen}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          {...(activeProject && onToggleDatabase ? { onToggleDatabase } : {})}
         />
       </header>
 

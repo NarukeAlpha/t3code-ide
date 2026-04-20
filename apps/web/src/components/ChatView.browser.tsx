@@ -202,6 +202,32 @@ function createMockEnvironmentApi(input: {
     filesystem: {
       browse: input.browse,
     },
+    database: {
+      listConnections: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listConnections"],
+      upsertConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["upsertConnection"],
+      deleteConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["deleteConnection"],
+      testConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["testConnection"],
+      listSchemas: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listSchemas"],
+      listTables: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listTables"],
+      previewTable: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["previewTable"],
+      executeQuery: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["executeQuery"],
+    },
     git: {} as EnvironmentApi["git"],
     orchestration: {
       dispatchCommand: input.dispatchCommand,

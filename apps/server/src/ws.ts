@@ -54,6 +54,7 @@ import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptR
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
+import { DatabaseManager } from "./database/Services/DatabaseManager.ts";
 import {
   BootstrapCredentialService,
   type BootstrapCredentialChange,
@@ -147,6 +148,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const databaseManager = yield* DatabaseManager;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
@@ -820,6 +822,54 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.databaseListConnections]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseListConnections,
+            databaseManager.listConnections(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseUpsertConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseUpsertConnection,
+            databaseManager.upsertConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseDeleteConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseDeleteConnection,
+            databaseManager.deleteConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseTestConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseTestConnection,
+            databaseManager.testConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseListSchemas]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseListSchemas, databaseManager.listSchemas(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databaseListTables]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseListTables, databaseManager.listTables(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databasePreviewTable]: (input) =>
+          observeRpcEffect(WS_METHODS.databasePreviewTable, databaseManager.previewTable(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databaseExecuteQuery]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseExecuteQuery, databaseManager.executeQuery(input), {
+            "rpc.aggregate": "database",
+          }),
         [WS_METHODS.subscribeGitStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeGitStatus,
