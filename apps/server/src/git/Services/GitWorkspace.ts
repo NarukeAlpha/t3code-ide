@@ -4,7 +4,13 @@ import type { Effect } from "effect";
 import type {
   GitCommandError,
   GitHubPullRequestCommentInput,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailInput,
+  GitHubPullRequestInboxInput,
+  GitHubPullRequestInboxSnapshot,
   GitHubPullRequestReviewInput,
+  GitHubWorkflowOverview,
+  GitHubWorkflowOverviewInput,
   GitHubWorkspaceError,
   GitHubWorkspaceInput,
   GitHubWorkspaceSnapshot,
@@ -20,6 +26,15 @@ export interface GitWorkspaceShape {
   readonly getGitHubWorkspace: (
     input: GitHubWorkspaceInput,
   ) => Effect.Effect<GitHubWorkspaceSnapshot, GitHubWorkspaceError>;
+  readonly getPullRequestInbox: (
+    input: GitHubPullRequestInboxInput,
+  ) => Effect.Effect<GitHubPullRequestInboxSnapshot, GitHubWorkspaceError>;
+  readonly getPullRequestDetail: (
+    input: GitHubPullRequestDetailInput,
+  ) => Effect.Effect<GitHubPullRequestDetail, GitHubWorkspaceError>;
+  readonly getWorkflowOverview: (
+    input: GitHubWorkflowOverviewInput,
+  ) => Effect.Effect<GitHubWorkflowOverview, GitHubWorkspaceError>;
   readonly addPullRequestComment: (
     input: GitHubPullRequestCommentInput,
   ) => Effect.Effect<GitHubWorkspaceWriteResult, GitHubWorkspaceError>;

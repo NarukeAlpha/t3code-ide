@@ -893,6 +893,24 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(WS_METHODS.githubGetWorkspace, gitWorkspace.getGitHubWorkspace(input), {
             "rpc.aggregate": "git",
           }),
+        [WS_METHODS.githubGetPullRequestInbox]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetPullRequestInbox,
+            gitWorkspace.getPullRequestInbox(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubGetPullRequestDetail]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetPullRequestDetail,
+            gitWorkspace.getPullRequestDetail(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubGetWorkflowOverview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetWorkflowOverview,
+            gitWorkspace.getWorkflowOverview(input),
+            { "rpc.aggregate": "git" },
+          ),
         [WS_METHODS.githubAddPullRequestComment]: (input) =>
           observeRpcEffect(
             WS_METHODS.githubAddPullRequestComment,

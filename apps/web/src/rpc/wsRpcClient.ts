@@ -103,6 +103,9 @@ export interface WsRpcClient {
   };
   readonly github: {
     readonly getWorkspace: RpcUnaryMethod<typeof WS_METHODS.githubGetWorkspace>;
+    readonly getPullRequestInbox: RpcUnaryMethod<typeof WS_METHODS.githubGetPullRequestInbox>;
+    readonly getPullRequestDetail: RpcUnaryMethod<typeof WS_METHODS.githubGetPullRequestDetail>;
+    readonly getWorkflowOverview: RpcUnaryMethod<typeof WS_METHODS.githubGetWorkflowOverview>;
     readonly addPullRequestComment: RpcUnaryMethod<typeof WS_METHODS.githubAddPullRequestComment>;
     readonly submitPullRequestReview: RpcUnaryMethod<
       typeof WS_METHODS.githubSubmitPullRequestReview
@@ -217,6 +220,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     github: {
       getWorkspace: (input) =>
         transport.request((client) => client[WS_METHODS.githubGetWorkspace](input)),
+      getPullRequestInbox: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetPullRequestInbox](input)),
+      getPullRequestDetail: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetPullRequestDetail](input)),
+      getWorkflowOverview: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetWorkflowOverview](input)),
       addPullRequestComment: (input) =>
         transport.request((client) => client[WS_METHODS.githubAddPullRequestComment](input)),
       submitPullRequestReview: (input) =>

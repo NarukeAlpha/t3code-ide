@@ -18,6 +18,38 @@ afterEach(() => {
 });
 
 layer("GitHubCliLive", (it) => {
+  it.effect("executes gh commands without shell wrapping and forwards stdin", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce({
+        stdout: '{"data":{}}',
+        stderr: "",
+        code: 0,
+        signal: null,
+        timedOut: false,
+      });
+
+      const result = yield* Effect.gen(function* () {
+        const gh = yield* GitHubCli;
+        return yield* gh.execute({
+          cwd: "/repo",
+          args: ["api", "graphql", "--input", "-"],
+          stdin: '{"query":"query { viewer { login } }"}',
+        });
+      });
+
+      expect(result.stdout).toBe('{"data":{}}');
+      expect(mockedRunProcess).toHaveBeenCalledWith(
+        "gh",
+        ["api", "graphql", "--input", "-"],
+        expect.objectContaining({
+          cwd: "/repo",
+          shell: false,
+          stdin: '{"query":"query { viewer { login } }"}',
+        }),
+      );
+    }),
+  );
+
   it.effect("parses pull request view output", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({

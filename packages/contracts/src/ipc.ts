@@ -23,7 +23,13 @@ import type {
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
   GitHubPullRequestCommentInput,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailInput,
+  GitHubPullRequestInboxInput,
+  GitHubPullRequestInboxSnapshot,
   GitHubPullRequestReviewInput,
+  GitHubWorkflowOverview,
+  GitHubWorkflowOverviewInput,
   GitHubWorkspaceInput,
   GitHubWorkspaceSnapshot,
   GitHubWorkspaceWriteResult,
@@ -281,6 +287,11 @@ export interface EnvironmentApi {
   };
   github: {
     getWorkspace: (input: GitHubWorkspaceInput) => Promise<GitHubWorkspaceSnapshot>;
+    getPullRequestInbox: (
+      input: GitHubPullRequestInboxInput,
+    ) => Promise<GitHubPullRequestInboxSnapshot>;
+    getPullRequestDetail: (input: GitHubPullRequestDetailInput) => Promise<GitHubPullRequestDetail>;
+    getWorkflowOverview: (input: GitHubWorkflowOverviewInput) => Promise<GitHubWorkflowOverview>;
     addPullRequestComment: (
       input: GitHubPullRequestCommentInput,
     ) => Promise<GitHubWorkspaceWriteResult>;

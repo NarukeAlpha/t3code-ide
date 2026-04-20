@@ -194,6 +194,7 @@ const GitWorkspaceLayerLive = GitWorkspaceLive.pipe(
   Layer.provideMerge(GitManagerLayerLive),
   Layer.provideMerge(GitHubCliLive),
   Layer.provideMerge(GitCoreLive),
+  Layer.provideMerge(RepositoryIdentityResolverLive),
 );
 
 const GitLayerLive = Layer.empty.pipe(

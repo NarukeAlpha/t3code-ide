@@ -38,7 +38,13 @@ import {
 } from "./git.ts";
 import {
   GitHubPullRequestCommentInput,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailInput,
+  GitHubPullRequestInboxInput,
+  GitHubPullRequestInboxSnapshot,
   GitHubPullRequestReviewInput,
+  GitHubWorkflowOverview,
+  GitHubWorkflowOverviewInput,
   GitHubWorkspaceError,
   GitHubWorkspaceInput,
   GitHubWorkspaceSnapshot,
@@ -117,6 +123,9 @@ export const WS_METHODS = {
 
   // GitHub methods
   githubGetWorkspace: "github.getWorkspace",
+  githubGetPullRequestInbox: "github.getPullRequestInbox",
+  githubGetPullRequestDetail: "github.getPullRequestDetail",
+  githubGetWorkflowOverview: "github.getWorkflowOverview",
   githubAddPullRequestComment: "github.addPullRequestComment",
   githubSubmitPullRequestReview: "github.submitPullRequestReview",
 
@@ -279,6 +288,24 @@ export const WsGitHubGetWorkspaceRpc = Rpc.make(WS_METHODS.githubGetWorkspace, {
   error: GitHubWorkspaceError,
 });
 
+export const WsGitHubGetPullRequestInboxRpc = Rpc.make(WS_METHODS.githubGetPullRequestInbox, {
+  payload: GitHubPullRequestInboxInput,
+  success: GitHubPullRequestInboxSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubGetPullRequestDetailRpc = Rpc.make(WS_METHODS.githubGetPullRequestDetail, {
+  payload: GitHubPullRequestDetailInput,
+  success: GitHubPullRequestDetail,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubGetWorkflowOverviewRpc = Rpc.make(WS_METHODS.githubGetWorkflowOverview, {
+  payload: GitHubWorkflowOverviewInput,
+  success: GitHubWorkflowOverview,
+  error: GitHubWorkspaceError,
+});
+
 export const WsGitHubAddPullRequestCommentRpc = Rpc.make(WS_METHODS.githubAddPullRequestComment, {
   payload: GitHubPullRequestCommentInput,
   success: GitHubWorkspaceWriteResult,
@@ -422,6 +449,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitInitRpc,
   WsGitGetRecentGraphRpc,
   WsGitHubGetWorkspaceRpc,
+  WsGitHubGetPullRequestInboxRpc,
+  WsGitHubGetPullRequestDetailRpc,
+  WsGitHubGetWorkflowOverviewRpc,
   WsGitHubAddPullRequestCommentRpc,
   WsGitHubSubmitPullRequestReviewRpc,
   WsTerminalOpenRpc,

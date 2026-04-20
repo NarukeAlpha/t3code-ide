@@ -39,6 +39,9 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     },
     github: {
       getWorkspace: rpcClient.github.getWorkspace,
+      getPullRequestInbox: rpcClient.github.getPullRequestInbox,
+      getPullRequestDetail: rpcClient.github.getPullRequestDetail,
+      getWorkflowOverview: rpcClient.github.getWorkflowOverview,
       addPullRequestComment: rpcClient.github.addPullRequestComment,
       submitPullRequestReview: rpcClient.github.submitPullRequestReview,
     },

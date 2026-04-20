@@ -133,6 +133,96 @@ export const GitHubWorkspaceInput = Schema.Struct({
 });
 export type GitHubWorkspaceInput = typeof GitHubWorkspaceInput.Type;
 
+export const GitHubPullRequestInboxState = Schema.Literals(["open", "closed", "merged", "all"]);
+export type GitHubPullRequestInboxState = typeof GitHubPullRequestInboxState.Type;
+
+export const GitHubPullRequestReviewFilter = Schema.Literals([
+  "any",
+  "review_required",
+  "approved",
+  "changes_requested",
+  "commented",
+  "no_decision",
+]);
+export type GitHubPullRequestReviewFilter = typeof GitHubPullRequestReviewFilter.Type;
+
+export const GitHubPullRequestDraftFilter = Schema.Literals(["any", "draft", "ready"]);
+export type GitHubPullRequestDraftFilter = typeof GitHubPullRequestDraftFilter.Type;
+
+export const GitHubPullRequestSort = Schema.Literals(["updated", "created", "number"]);
+export type GitHubPullRequestSort = typeof GitHubPullRequestSort.Type;
+
+export const GitHubRepositoryLabel = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  color: TrimmedNonEmptyString,
+  description: Schema.NullOr(Schema.String),
+});
+export type GitHubRepositoryLabel = typeof GitHubRepositoryLabel.Type;
+
+export const GitHubPullRequestFilters = Schema.Struct({
+  search: Schema.optional(Schema.String),
+  state: Schema.optional(GitHubPullRequestInboxState),
+  review: Schema.optional(GitHubPullRequestReviewFilter),
+  author: Schema.optional(Schema.String),
+  assignee: Schema.optional(Schema.String),
+  baseBranch: Schema.optional(Schema.String),
+  headBranch: Schema.optional(Schema.String),
+  labels: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  draft: Schema.optional(GitHubPullRequestDraftFilter),
+  sort: Schema.optional(GitHubPullRequestSort),
+});
+export type GitHubPullRequestFilters = typeof GitHubPullRequestFilters.Type;
+
+export const GitHubPullRequestSummary = Schema.Struct({
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  url: Schema.String,
+  state: Schema.Literals(["open", "closed", "merged"]),
+  isDraft: Schema.Boolean,
+  author: Schema.NullOr(GitHubActor),
+  reviewDecision: Schema.NullOr(TrimmedNonEmptyString),
+  baseBranch: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
+  labels: Schema.Array(GitHubRepositoryLabel),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type GitHubPullRequestSummary = typeof GitHubPullRequestSummary.Type;
+
+export const GitHubPullRequestInboxInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  filters: Schema.optional(GitHubPullRequestFilters),
+  cursor: Schema.optional(TrimmedNonEmptyString),
+  pageSize: Schema.optional(PositiveInt),
+});
+export type GitHubPullRequestInboxInput = typeof GitHubPullRequestInboxInput.Type;
+
+export const GitHubPullRequestInboxSnapshot = Schema.Struct({
+  availability: GitHubWorkspaceAvailability,
+  repository: Schema.NullOr(TrimmedNonEmptyString),
+  labels: Schema.Array(GitHubRepositoryLabel),
+  pullRequests: Schema.Array(GitHubPullRequestSummary),
+  nextCursor: Schema.NullOr(TrimmedNonEmptyString),
+  appliedFilters: GitHubPullRequestFilters,
+  fetchedAt: IsoDateTime,
+});
+export type GitHubPullRequestInboxSnapshot = typeof GitHubPullRequestInboxSnapshot.Type;
+
+export const GitHubPullRequestDetailInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+});
+export type GitHubPullRequestDetailInput = typeof GitHubPullRequestDetailInput.Type;
+
+export const GitHubPullRequestDetail = Schema.Struct({
+  pullRequest: GitHubPullRequestSnapshot,
+  fetchedAt: IsoDateTime,
+});
+export type GitHubPullRequestDetail = typeof GitHubPullRequestDetail.Type;
+
 export const GitHubWorkspacePullRequest = Schema.Struct({
   ...GitHubPullRequestSnapshotShape,
   checks: Schema.Array(GitHubCheckSummary),
@@ -147,6 +237,40 @@ export const GitHubWorkspaceSnapshot = Schema.Struct({
   fetchedAt: IsoDateTime,
 });
 export type GitHubWorkspaceSnapshot = typeof GitHubWorkspaceSnapshot.Type;
+
+export const GitHubWorkflowTarget = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("pull_request"),
+    repository: TrimmedNonEmptyString,
+    number: PositiveInt,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("remote_ref"),
+    remoteName: TrimmedNonEmptyString,
+    branch: TrimmedNonEmptyString,
+  }),
+]);
+export type GitHubWorkflowTarget = typeof GitHubWorkflowTarget.Type;
+
+export const GitHubWorkflowOverviewInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  target: GitHubWorkflowTarget,
+});
+export type GitHubWorkflowOverviewInput = typeof GitHubWorkflowOverviewInput.Type;
+
+export const GitHubWorkflowOverview = Schema.Struct({
+  availability: GitHubWorkspaceAvailability,
+  target: GitHubWorkflowTarget,
+  repository: Schema.NullOr(TrimmedNonEmptyString),
+  targetLabel: TrimmedNonEmptyString,
+  resolvedSha: Schema.NullOr(TrimmedNonEmptyString),
+  isStale: Schema.Boolean,
+  unavailableReason: Schema.NullOr(TrimmedNonEmptyString),
+  checks: Schema.Array(GitHubCheckSummary),
+  runs: Schema.Array(GitHubWorkflowRun),
+  fetchedAt: IsoDateTime,
+});
+export type GitHubWorkflowOverview = typeof GitHubWorkflowOverview.Type;
 
 export const GitHubPullRequestCommentInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

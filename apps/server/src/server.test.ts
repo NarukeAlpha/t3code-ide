@@ -480,6 +480,71 @@ const buildAppUnderTest = (options?: {
               activePullRequest: null,
               fetchedAt: new Date().toISOString(),
             }),
+          getPullRequestInbox: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              repository: "owner/repo",
+              labels: [],
+              pullRequests: [],
+              nextCursor: null,
+              appliedFilters: {
+                search: "",
+                state: "open" as const,
+                review: "any" as const,
+                author: "",
+                assignee: "",
+                baseBranch: "",
+                labels: [],
+                draft: "any" as const,
+                sort: "updated" as const,
+              },
+              fetchedAt: new Date().toISOString(),
+            }),
+          getPullRequestDetail: () =>
+            Effect.succeed({
+              pullRequest: {
+                repository: "owner/repo",
+                number: 1,
+                title: "Test PR",
+                url: "https://github.com/owner/repo/pull/1",
+                state: "open" as const,
+                isDraft: false,
+                body: "",
+                author: null,
+                reviewDecision: null,
+                baseBranch: "main",
+                headBranch: "feature",
+                headSha: "abc123",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                comments: [],
+                reviews: [],
+              },
+              fetchedAt: new Date().toISOString(),
+            }),
+          getWorkflowOverview: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              target: {
+                kind: "remote_ref" as const,
+                remoteName: "origin",
+                branch: "main",
+              },
+              repository: "owner/repo",
+              targetLabel: "origin/main",
+              resolvedSha: null,
+              isStale: false,
+              unavailableReason: null,
+              checks: [],
+              runs: [],
+              fetchedAt: new Date().toISOString(),
+            }),
           addPullRequestComment: () =>
             Effect.succeed({
               updatedAt: new Date().toISOString(),
