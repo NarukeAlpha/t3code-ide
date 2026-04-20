@@ -6,7 +6,6 @@ import type {
   GitHubPullRequestDetail,
   GitHubPullRequestFilters,
   GitHubPullRequestInboxSnapshot,
-  GitHubPullRequestReviewEvent,
   GitHubPullRequestSummary,
   GitHubWorkflowOverview,
   GitHubWorkflowRun,
@@ -24,7 +23,6 @@ import {
   RefreshCwIcon,
   SearchIcon,
   ShieldAlertIcon,
-  ShieldCheckIcon,
   TagIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -35,13 +33,13 @@ import {
   gitHubPullRequestInboxQueryOptions,
   gitHubWorkflowOverviewQueryOptions,
   gitRecentGraphQueryOptions,
-  gitSubmitPullRequestReviewMutationOptions,
 } from "~/lib/gitReactQuery";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogPanel,
   DialogPopup,
@@ -56,21 +54,13 @@ import {
 } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import {
-  Menu,
-  MenuCheckboxItem,
-  MenuGroup,
-  MenuGroupLabel,
-  MenuItem,
-  MenuPopup,
-  MenuTrigger,
-} from "~/components/ui/menu";
-import {
   Select,
   SelectItem,
   SelectPopup,
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import { Textarea } from "~/components/ui/textarea";
 import { toastManager } from "~/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group";
@@ -233,6 +223,86 @@ function formatReviewDecision(value: string | null | undefined) {
     .toLowerCase()
     .replace(/_/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function normalizePullRequestFilterValue(value: string | null | undefined) {
+  return value?.trim() ?? "";
+}
+
+function countActivePullRequestFilters(
+  filters: GitHubPullRequestFilters,
+  resetFilters: GitHubPullRequestFilters,
+) {
+  const currentLabels = [...(filters.labels ?? [])].toSorted();
+  const defaultLabels = [...(resetFilters.labels ?? [])].toSorted();
+
+  return [
+    normalizePullRequestFilterValue(filters.search) !==
+      normalizePullRequestFilterValue(resetFilters.search),
+    (filters.state ?? "open") !== (resetFilters.state ?? "open"),
+    (filters.review ?? "any") !== (resetFilters.review ?? "any"),
+    normalizePullRequestFilterValue(filters.author) !==
+      normalizePullRequestFilterValue(resetFilters.author),
+    normalizePullRequestFilterValue(filters.assignee) !==
+      normalizePullRequestFilterValue(resetFilters.assignee),
+    normalizePullRequestFilterValue(filters.baseBranch) !==
+      normalizePullRequestFilterValue(resetFilters.baseBranch),
+    normalizePullRequestFilterValue(filters.headBranch) !==
+      normalizePullRequestFilterValue(resetFilters.headBranch),
+    currentLabels.join("\u0000") !== defaultLabels.join("\u0000"),
+    (filters.draft ?? "any") !== (resetFilters.draft ?? "any"),
+    (filters.sort ?? "updated") !== (resetFilters.sort ?? "updated"),
+  ].filter(Boolean).length;
+}
+
+function buildPullRequestFilterSummary(filters: GitHubPullRequestFilters) {
+  const summary: string[] = [];
+  const search = normalizePullRequestFilterValue(filters.search);
+  const author = normalizePullRequestFilterValue(filters.author);
+  const assignee = normalizePullRequestFilterValue(filters.assignee);
+  const baseBranch = normalizePullRequestFilterValue(filters.baseBranch);
+  const headBranch = normalizePullRequestFilterValue(filters.headBranch);
+  const labels = filters.labels ?? [];
+
+  if (headBranch) {
+    summary.push(`Head ${headBranch}`);
+  } else if (baseBranch) {
+    summary.push(`Base ${baseBranch}`);
+  }
+  if (search) {
+    summary.push(`Search ${search}`);
+  }
+  if (author) {
+    summary.push(`Author ${author}`);
+  }
+  if (assignee) {
+    summary.push(`Assignee ${assignee}`);
+  }
+  if (labels.length > 0) {
+    summary.push(labels.length === 1 ? `1 label` : `${labels.length} labels`);
+  }
+  if ((filters.state ?? "open") !== "open") {
+    summary.push(`State ${filters.state ?? "open"}`);
+  }
+  if ((filters.review ?? "any") !== "any") {
+    summary.push(formatReviewDecision(filters.review) ?? "Review");
+  }
+  if ((filters.draft ?? "any") !== "any") {
+    summary.push(filters.draft === "draft" ? "Draft only" : "Ready only");
+  }
+  if ((filters.sort ?? "updated") !== "updated") {
+    summary.push(`Sort ${filters.sort ?? "updated"}`);
+  }
+
+  return summary;
+}
+
+function resolveTimelineSortValue(value: string | null | undefined) {
+  if (!value) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }
 
 function groupWorkflowRuns(runs: ReadonlyArray<GitHubWorkflowRun>) {
@@ -537,155 +607,243 @@ function PullRequestFiltersToolbar({
   isRefreshing: boolean;
 }) {
   const selectedLabels = filters.labels ?? [];
+  const [isFiltersDialogOpen, setIsFiltersDialogOpen] = useState(false);
+  const activeFilterCount = useMemo(
+    () => countActivePullRequestFilters(filters, resetFilters),
+    [filters, resetFilters],
+  );
+  const summary = useMemo(() => buildPullRequestFilterSummary(filters), [filters]);
+  const toggleLabel = (labelName: string) => {
+    const checked = selectedLabels.includes(labelName);
+    const nextLabels = checked
+      ? selectedLabels.filter((selectedLabel) => selectedLabel !== labelName)
+      : [...selectedLabels, labelName];
+    onFiltersChange({ labels: nextLabels });
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-muted-foreground text-sm">
-          <FilterIcon className="size-4" />
-          Thread pull request scope
+    <>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <FilterIcon className="size-4" />
+              Pull request scope
+            </div>
+            {summary.length === 0 ? (
+              <Badge variant="outline" size="sm">
+                Default scope
+              </Badge>
+            ) : (
+              summary.map((item) => (
+                <Badge key={item} variant="outline" size="sm">
+                  {item}
+                </Badge>
+              ))
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={onRefresh}>
+              {isRefreshing ? <LoaderIcon className="animate-spin" /> : <RefreshCwIcon />}
+              Refresh
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setIsFiltersDialogOpen(true)}>
+              <ListFilterIcon />
+              Filters
+              {activeFilterCount > 0 ? (
+                <Badge className="ml-1" variant="secondary" size="sm">
+                  {activeFilterCount}
+                </Badge>
+              ) : null}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => onFiltersChange({ ...resetFilters })}>
+              Reset filters
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={onRefresh}>
-            {isRefreshing ? <LoaderIcon className="animate-spin" /> : <RefreshCwIcon />}
-            Refresh
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => onFiltersChange({ ...resetFilters })}>
-            Reset filters
-          </Button>
-        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Input
-          className="min-w-[16rem] flex-1"
-          placeholder="Search title or #number"
-          size="sm"
-          type="search"
-          value={filters.search ?? ""}
-          onChange={(event) => onFiltersChange({ search: event.target.value })}
-        />
-        <FilterSelect
-          ariaLabel="Pull request state"
-          value={filters.state ?? "open"}
-          onValueChange={(value) =>
-            onFiltersChange({ state: value as NonNullable<GitHubPullRequestFilters["state"]> })
-          }
-          items={[
-            { label: "Open", value: "open" },
-            { label: "Closed", value: "closed" },
-            { label: "Merged", value: "merged" },
-            { label: "All", value: "all" },
-          ]}
-        />
-        <FilterSelect
-          ariaLabel="Pull request review"
-          value={filters.review ?? "any"}
-          onValueChange={(value) =>
-            onFiltersChange({ review: value as NonNullable<GitHubPullRequestFilters["review"]> })
-          }
-          items={[
-            { label: "Any Review", value: "any" },
-            { label: "Review Required", value: "review_required" },
-            { label: "Approved", value: "approved" },
-            { label: "Changes Requested", value: "changes_requested" },
-            { label: "Commented", value: "commented" },
-            { label: "No Decision", value: "no_decision" },
-          ]}
-        />
-        <FilterSelect
-          ariaLabel="Pull request draft state"
-          value={filters.draft ?? "any"}
-          onValueChange={(value) =>
-            onFiltersChange({ draft: value as NonNullable<GitHubPullRequestFilters["draft"]> })
-          }
-          items={[
-            { label: "Any Draft State", value: "any" },
-            { label: "Draft", value: "draft" },
-            { label: "Ready", value: "ready" },
-          ]}
-        />
-        <FilterSelect
-          ariaLabel="Pull request sort"
-          value={filters.sort ?? "updated"}
-          onValueChange={(value) =>
-            onFiltersChange({ sort: value as NonNullable<GitHubPullRequestFilters["sort"]> })
-          }
-          items={[
-            { label: "Updated", value: "updated" },
-            { label: "Created", value: "created" },
-            { label: "Number", value: "number" },
-          ]}
-        />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Input
-          className="min-w-[10rem] flex-1"
-          placeholder="Author"
-          size="sm"
-          value={filters.author ?? ""}
-          onChange={(event) => onFiltersChange({ author: event.target.value })}
-        />
-        <Input
-          className="min-w-[10rem] flex-1"
-          placeholder="Assignee"
-          size="sm"
-          value={filters.assignee ?? ""}
-          onChange={(event) => onFiltersChange({ assignee: event.target.value })}
-        />
-        <Input
-          className="min-w-[10rem] flex-1"
-          placeholder="Base branch"
-          size="sm"
-          value={filters.baseBranch ?? ""}
-          onChange={(event) => onFiltersChange({ baseBranch: event.target.value })}
-        />
-        <Input
-          className="min-w-[10rem] flex-1"
-          placeholder="Head branch"
-          size="sm"
-          value={filters.headBranch ?? ""}
-          onChange={(event) => onFiltersChange({ headBranch: event.target.value })}
-        />
-        <Menu>
-          <MenuTrigger render={<Button size="sm" variant="outline" />}>
-            <TagIcon />
-            {selectedLabels.length === 0 ? "Labels" : `${selectedLabels.length} label(s)`}
-          </MenuTrigger>
-          <MenuPopup align="end">
-            <MenuGroup>
-              <MenuGroupLabel>Labels</MenuGroupLabel>
-              {labelOptions.length === 0 ? (
-                <MenuItem disabled>No labels found</MenuItem>
-              ) : (
-                labelOptions.map((label) => {
-                  const checked = selectedLabels.includes(label.name);
-                  return (
-                    <MenuCheckboxItem
-                      key={label.id}
-                      checked={checked}
-                      onCheckedChange={(nextChecked) => {
-                        const nextLabels = nextChecked
-                          ? [...selectedLabels, label.name]
-                          : selectedLabels.filter((selectedLabel) => selectedLabel !== label.name);
-                        onFiltersChange({ labels: nextLabels });
-                      }}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <span
-                          className="size-2 rounded-full"
-                          style={{ backgroundColor: `#${label.color}` }}
-                        />
-                        <span>{label.name}</span>
-                      </span>
-                    </MenuCheckboxItem>
-                  );
-                })
-              )}
-            </MenuGroup>
-          </MenuPopup>
-        </Menu>
-      </div>
-    </div>
+
+      <Dialog open={isFiltersDialogOpen} onOpenChange={setIsFiltersDialogOpen}>
+        <DialogPopup className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Pull Request Filters</DialogTitle>
+            <DialogDescription>
+              Adjust the repository inbox scope without changing the surrounding workspace layout.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="max-h-[70vh]">
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Search</div>
+                  <Input
+                    placeholder="Search title or #number"
+                    size="sm"
+                    type="search"
+                    value={filters.search ?? ""}
+                    onChange={(event) => onFiltersChange({ search: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">State</div>
+                  <FilterSelect
+                    ariaLabel="Pull request state"
+                    value={filters.state ?? "open"}
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        state: value as NonNullable<GitHubPullRequestFilters["state"]>,
+                      })
+                    }
+                    items={[
+                      { label: "Open", value: "open" },
+                      { label: "Closed", value: "closed" },
+                      { label: "Merged", value: "merged" },
+                      { label: "All", value: "all" },
+                    ]}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Review</div>
+                  <FilterSelect
+                    ariaLabel="Pull request review"
+                    value={filters.review ?? "any"}
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        review: value as NonNullable<GitHubPullRequestFilters["review"]>,
+                      })
+                    }
+                    items={[
+                      { label: "Any Review", value: "any" },
+                      { label: "Review Required", value: "review_required" },
+                      { label: "Approved", value: "approved" },
+                      { label: "Changes Requested", value: "changes_requested" },
+                      { label: "Commented", value: "commented" },
+                      { label: "No Decision", value: "no_decision" },
+                    ]}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Draft State</div>
+                  <FilterSelect
+                    ariaLabel="Pull request draft state"
+                    value={filters.draft ?? "any"}
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        draft: value as NonNullable<GitHubPullRequestFilters["draft"]>,
+                      })
+                    }
+                    items={[
+                      { label: "Any Draft State", value: "any" },
+                      { label: "Draft", value: "draft" },
+                      { label: "Ready", value: "ready" },
+                    ]}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Sort</div>
+                  <FilterSelect
+                    ariaLabel="Pull request sort"
+                    value={filters.sort ?? "updated"}
+                    onValueChange={(value) =>
+                      onFiltersChange({
+                        sort: value as NonNullable<GitHubPullRequestFilters["sort"]>,
+                      })
+                    }
+                    items={[
+                      { label: "Updated", value: "updated" },
+                      { label: "Created", value: "created" },
+                      { label: "Number", value: "number" },
+                    ]}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Author</div>
+                  <Input
+                    placeholder="Author"
+                    size="sm"
+                    value={filters.author ?? ""}
+                    onChange={(event) => onFiltersChange({ author: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Assignee</div>
+                  <Input
+                    placeholder="Assignee"
+                    size="sm"
+                    value={filters.assignee ?? ""}
+                    onChange={(event) => onFiltersChange({ assignee: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Base Branch</div>
+                  <Input
+                    placeholder="Base branch"
+                    size="sm"
+                    value={filters.baseBranch ?? ""}
+                    onChange={(event) => onFiltersChange({ baseBranch: event.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="font-medium text-sm">Head Branch</div>
+                  <Input
+                    placeholder="Head branch"
+                    size="sm"
+                    value={filters.headBranch ?? ""}
+                    onChange={(event) => onFiltersChange({ headBranch: event.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 font-medium text-sm">
+                  <TagIcon className="size-4 text-muted-foreground" />
+                  Labels
+                </div>
+                {labelOptions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed px-3 py-4 text-muted-foreground text-sm">
+                    No labels found for this repository.
+                  </div>
+                ) : (
+                  <ScrollArea className="max-h-48 rounded-lg border bg-muted/10" scrollbarGutter>
+                    <div className="flex flex-wrap gap-2 p-3">
+                      {labelOptions.map((label) => {
+                        const checked = selectedLabels.includes(label.name);
+                        return (
+                          <Button
+                            key={label.id}
+                            size="sm"
+                            variant={checked ? "secondary" : "outline"}
+                            onClick={() => toggleLabel(label.name)}
+                          >
+                            <span
+                              className="size-2 rounded-full"
+                              style={{ backgroundColor: `#${label.color}` }}
+                            />
+                            {label.name}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
+              </div>
+            </div>
+          </DialogPanel>
+          <DialogFooter variant="bare">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onFiltersChange({ ...resetFilters })}
+            >
+              Reset filters
+            </Button>
+            <Button size="sm" onClick={() => setIsFiltersDialogOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
   );
 }
 
@@ -711,7 +869,7 @@ function PullRequestInboxList({
           <Badge variant="outline">{pullRequests.length}</Badge>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <ScrollArea className="min-h-0 flex-1" scrollbarGutter>
         {pullRequests.length === 0 ? (
           <div className="p-4 text-muted-foreground text-sm">
             No pull requests match the current filters.
@@ -776,7 +934,7 @@ function PullRequestInboxList({
             })}
           </div>
         )}
-      </div>
+      </ScrollArea>
       {hasMore ? (
         <div className="border-t px-4 py-3">
           <Button className="w-full" size="sm" variant="outline" onClick={onLoadMore}>
@@ -792,9 +950,7 @@ function PullRequestDetailPane({
   pullRequest,
   detailState,
   onSubmitComment,
-  onSubmitReview,
   isCommentPending,
-  isReviewPending,
 }: {
   pullRequest: GitHubPullRequestSummary | null;
   detailState:
@@ -803,16 +959,12 @@ function PullRequestDetailPane({
     | { kind: "error"; message: string }
     | { kind: "ready"; detail: GitHubPullRequestDetail };
   onSubmitComment: (body: string) => Promise<void>;
-  onSubmitReview: (event: GitHubPullRequestReviewEvent, body: string) => Promise<void>;
   isCommentPending: boolean;
-  isReviewPending: boolean;
 }) {
   const [commentBody, setCommentBody] = useState("");
-  const [reviewBody, setReviewBody] = useState("");
 
   useEffect(() => {
     setCommentBody("");
-    setReviewBody("");
   }, [pullRequest?.repository, pullRequest?.number]);
 
   if (!pullRequest) {
@@ -820,7 +972,7 @@ function PullRequestDetailPane({
       <div className="flex h-full items-center justify-center p-6">
         <WorkspaceAvailabilityEmpty
           title="No Pull Request Selected"
-          description="Pick a pull request from the inbox to inspect details, comments, and reviews."
+          description="Pick a pull request from the inbox to inspect details and add comments."
           icon={<SearchIcon />}
         />
       </div>
@@ -856,10 +1008,46 @@ function PullRequestDetailPane({
   }
 
   const detail = detailState.detail.pullRequest;
+  const timeline = [
+    {
+      id: `description-${detail.repository}-${detail.number}`,
+      kind: "description" as const,
+      label: "Description",
+      author: detail.author,
+      body: detail.body,
+      url: detail.url,
+      createdAt: detail.createdAt,
+      updatedAt: detail.updatedAt,
+    },
+    ...detail.comments.map((comment) => ({
+      id: `comment-${comment.id}`,
+      kind: "comment" as const,
+      label: "Comment",
+      author: comment.author,
+      body: comment.body,
+      url: comment.url,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+    })),
+    ...detail.reviews.map((review) => ({
+      id: `review-${review.id}`,
+      kind: "review" as const,
+      label: formatReviewDecision(review.state) ?? "Review",
+      author: review.author,
+      body: review.body,
+      url: review.url,
+      createdAt: review.submittedAt ?? detail.updatedAt,
+      updatedAt: review.submittedAt,
+      state: review.state,
+    })),
+  ].toSorted(
+    (left, right) =>
+      resolveTimelineSortValue(left.createdAt) - resolveTimelineSortValue(right.createdAt),
+  );
 
   return (
-    <div className="h-full overflow-y-auto px-5 py-4">
-      <div className="space-y-4">
+    <ScrollArea className="h-full" scrollbarGutter>
+      <div className="space-y-4 px-5 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-background p-4">
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -896,141 +1084,73 @@ function PullRequestDetailPane({
         </div>
 
         <div className="rounded-lg border bg-background p-4">
-          <div className="mb-2 font-medium text-sm">Description</div>
-          {detail.body.trim().length > 0 ? (
-            <pre className="whitespace-pre-wrap break-words text-sm">{detail.body}</pre>
-          ) : (
-            <div className="text-muted-foreground text-sm">No description provided.</div>
-          )}
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-3 rounded-lg border bg-background p-4">
-            <div className="font-medium text-sm">Add Comment</div>
-            <Textarea
-              rows={6}
-              value={commentBody}
-              onChange={(event) => setCommentBody(event.target.value)}
-              placeholder="Leave a top-level pull request comment"
-            />
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                disabled={isCommentPending || commentBody.trim().length === 0}
-                onClick={() => void onSubmitComment(commentBody)}
-              >
-                {isCommentPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
-                Comment
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-3 rounded-lg border bg-background p-4">
-            <div className="font-medium text-sm">Submit Review</div>
-            <Textarea
-              rows={6}
-              value={reviewBody}
-              onChange={(event) => setReviewBody(event.target.value)}
-              placeholder="Optional review summary"
-            />
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isReviewPending || reviewBody.trim().length === 0}
-                onClick={() => void onSubmitReview("comment", reviewBody)}
-              >
-                {isReviewPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
-                Comment
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isReviewPending}
-                onClick={() => void onSubmitReview("request_changes", reviewBody)}
-              >
-                <ShieldAlertIcon />
-                Request Changes
-              </Button>
-              <Button
-                size="sm"
-                disabled={isReviewPending}
-                onClick={() => void onSubmitReview("approve", reviewBody)}
-              >
-                <ShieldCheckIcon />
-                Approve
-              </Button>
-            </div>
+          <div className="mb-3 font-medium text-sm">Timeline</div>
+          <div className="relative space-y-4 pl-6 before:absolute before:top-0 before:left-[0.4375rem] before:h-full before:w-px before:bg-border">
+            {timeline.map((entry) => (
+              <div key={entry.id} className="relative">
+                <span className="absolute top-5 -left-6 inline-flex size-3 rounded-full border bg-background" />
+                <div className="rounded-lg border bg-muted/16 p-4">
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant="outline" size="sm">
+                      {entry.author ? `@${entry.author.login}` : "Unknown author"}
+                    </Badge>
+                    <Badge
+                      variant={
+                        entry.kind === "review"
+                          ? "secondary"
+                          : entry.kind === "description"
+                            ? "outline"
+                            : "info"
+                      }
+                      size="sm"
+                    >
+                      {entry.label}
+                    </Badge>
+                    <span className="text-muted-foreground">{formatDateTime(entry.createdAt)}</span>
+                    <a
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                      href={entry.url}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open
+                      <ExternalLinkIcon className="size-3" />
+                    </a>
+                  </div>
+                  {entry.body.trim().length > 0 ? (
+                    <pre className="whitespace-pre-wrap break-words text-sm">{entry.body}</pre>
+                  ) : entry.kind === "description" ? (
+                    <div className="text-muted-foreground text-sm">No description provided.</div>
+                  ) : (
+                    <div className="text-muted-foreground text-sm">No message provided.</div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-3 rounded-lg border bg-background p-4">
-            <div className="font-medium text-sm">Comments</div>
-            {detail.comments.length === 0 ? (
-              <div className="text-muted-foreground text-sm">No top-level comments.</div>
-            ) : (
-              <div className="space-y-3">
-                {detail.comments.map((comment) => (
-                  <div key={comment.id} className="rounded-md border bg-muted/16 p-3">
-                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline" size="sm">
-                        {comment.author ? `@${comment.author.login}` : "Unknown author"}
-                      </Badge>
-                      <span className="text-muted-foreground">
-                        {formatDateTime(comment.updatedAt)}
-                      </span>
-                      <a
-                        className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                        href={comment.url}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Open
-                        <ExternalLinkIcon className="size-3" />
-                      </a>
-                    </div>
-                    <pre className="whitespace-pre-wrap break-words text-sm">{comment.body}</pre>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-3 rounded-lg border bg-background p-4">
-            <div className="font-medium text-sm">Reviews</div>
-            {detail.reviews.length === 0 ? (
-              <div className="text-muted-foreground text-sm">No submitted reviews.</div>
-            ) : (
-              <div className="space-y-3">
-                {detail.reviews.map((review) => (
-                  <div key={review.id} className="rounded-md border bg-muted/16 p-3">
-                    <div className="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                      <Badge variant="outline" size="sm">
-                        {review.author ? `@${review.author.login}` : "Unknown reviewer"}
-                      </Badge>
-                      <Badge variant="secondary" size="sm">
-                        {review.state}
-                      </Badge>
-                      {review.submittedAt ? (
-                        <span className="text-muted-foreground">
-                          {formatDateTime(review.submittedAt)}
-                        </span>
-                      ) : null}
-                    </div>
-                    {review.body.trim().length > 0 ? (
-                      <pre className="whitespace-pre-wrap break-words text-sm">{review.body}</pre>
-                    ) : (
-                      <div className="text-muted-foreground text-sm">No review body.</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+        <div className="space-y-3 rounded-lg border bg-background p-4">
+          <div className="font-medium text-sm">Add Comment</div>
+          <Textarea
+            rows={6}
+            value={commentBody}
+            onChange={(event) => setCommentBody(event.target.value)}
+            placeholder="Leave a top-level pull request comment"
+          />
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={isCommentPending || commentBody.trim().length === 0}
+              onClick={() => void onSubmitComment(commentBody)}
+            >
+              {isCommentPending ? <LoaderIcon className="animate-spin" /> : <MessageSquareIcon />}
+              Comment
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 
@@ -1047,9 +1167,7 @@ function PullRequestsPanel({
   onLoadMore,
   onSelectPullRequest,
   onSubmitComment,
-  onSubmitReview,
   isCommentPending,
-  isReviewPending,
   isRefreshing,
 }: {
   isLoading: boolean;
@@ -1068,9 +1186,7 @@ function PullRequestsPanel({
   onLoadMore: () => void;
   onSelectPullRequest: (pullRequest: GitHubPullRequestSummary) => void;
   onSubmitComment: (body: string) => Promise<void>;
-  onSubmitReview: (event: GitHubPullRequestReviewEvent, body: string) => Promise<void>;
   isCommentPending: boolean;
-  isReviewPending: boolean;
   isRefreshing: boolean;
 }) {
   const labelOptions = inbox?.labels ?? [];
@@ -1102,7 +1218,11 @@ function PullRequestsPanel({
   if (inbox.availability.kind !== "available") {
     return (
       <WorkspaceAvailabilityEmpty
-        title="GitHub Pull Requests Unavailable"
+        title={
+          inbox.availability.kind === "gh_unavailable"
+            ? "gh cli not detected"
+            : "GitHub Pull Requests Unavailable"
+        }
         description={inbox.availability.message}
         icon={<ShieldAlertIcon />}
       />
@@ -1134,9 +1254,7 @@ function PullRequestsPanel({
           pullRequest={selectedPullRequest}
           detailState={detailState}
           onSubmitComment={onSubmitComment}
-          onSubmitReview={onSubmitReview}
           isCommentPending={isCommentPending}
-          isReviewPending={isReviewPending}
         />
       </div>
     </RepositoryWorkspaceTabShell>
@@ -1199,7 +1317,11 @@ function WorkflowsPanel({
   if (workflow.availability.kind !== "available") {
     return (
       <WorkspaceAvailabilityEmpty
-        title="GitHub Workflows Unavailable"
+        title={
+          workflow.availability.kind === "gh_unavailable"
+            ? "gh cli not detected"
+            : "GitHub Workflows Unavailable"
+        }
         description={workflow.availability.message}
         icon={<ShieldAlertIcon />}
       />
@@ -1252,9 +1374,9 @@ function WorkflowsPanel({
         </div>
       }
     >
-      <div className="h-full overflow-y-auto px-4 py-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-          <div className="space-y-3 rounded-lg border bg-background p-4">
+      <div className="grid h-full min-h-0 gap-4 px-4 py-4 xl:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <ScrollArea className="min-h-0 rounded-lg border bg-background" scrollbarGutter>
+          <div className="space-y-3 p-4">
             <div className="font-medium text-sm">Checks</div>
             {workflow.checks.length === 0 ? (
               <div className="text-muted-foreground text-sm">
@@ -1297,8 +1419,10 @@ function WorkflowsPanel({
               </div>
             )}
           </div>
+        </ScrollArea>
 
-          <div className="space-y-3 rounded-lg border bg-background p-4">
+        <ScrollArea className="min-h-0 rounded-lg border bg-background" scrollbarGutter>
+          <div className="space-y-3 p-4">
             <div className="font-medium text-sm">Workflow Runs</div>
             {groupedRuns.length === 0 ? (
               <div className="text-muted-foreground text-sm">
@@ -1381,7 +1505,7 @@ function WorkflowsPanel({
               </div>
             )}
           </div>
-        </div>
+        </ScrollArea>
       </div>
     </RepositoryWorkspaceTabShell>
   );
@@ -1406,6 +1530,7 @@ export function GitRepositoryWorkspaceDialog({
   );
   const [hasAppliedInitialBranchScope, setHasAppliedInitialBranchScope] = useState(false);
   const [hasAutoSelectedBranchPullRequest, setHasAutoSelectedBranchPullRequest] = useState(false);
+  const [isGhCliDialogOpen, setIsGhCliDialogOpen] = useState(false);
   const [isWindowVisible, setIsWindowVisible] = useState(() =>
     typeof document === "undefined" ? true : document.visibilityState === "visible",
   );
@@ -1613,13 +1738,34 @@ export function GitRepositoryWorkspaceDialog({
       queryClient,
     }),
   );
-  const reviewMutation = useMutation(
-    gitSubmitPullRequestReviewMutationOptions({
-      environmentId,
-      cwd,
-      queryClient,
-    }),
-  );
+
+  const ghCliUnavailableMessage = useMemo(() => {
+    if (activeTab === "pull_requests") {
+      return pullRequestInboxQuery.data?.availability.kind === "gh_unavailable"
+        ? pullRequestInboxQuery.data.availability.message
+        : null;
+    }
+    if (activeTab === "workflows") {
+      return workflowOverviewQuery.data?.availability.kind === "gh_unavailable"
+        ? workflowOverviewQuery.data.availability.message
+        : null;
+    }
+    return null;
+  }, [
+    activeTab,
+    pullRequestInboxQuery.data?.availability.kind,
+    pullRequestInboxQuery.data?.availability.message,
+    workflowOverviewQuery.data?.availability.kind,
+    workflowOverviewQuery.data?.availability.message,
+  ]);
+
+  useEffect(() => {
+    if (!open || !ghCliUnavailableMessage) {
+      setIsGhCliDialogOpen(false);
+      return;
+    }
+    setIsGhCliDialogOpen(true);
+  }, [ghCliUnavailableMessage, open]);
 
   const detailState = useMemo(() => {
     if (!selectedPullRequest) {
@@ -1663,28 +1809,6 @@ export function GitRepositoryWorkspaceDialog({
       type: "success",
       title: "Comment added",
       description: "The pull request comment was posted successfully.",
-    });
-  };
-
-  const handleSubmitReview = async (event: GitHubPullRequestReviewEvent, body: string) => {
-    if (!cwd || !selectedPullRequest) {
-      return;
-    }
-    await reviewMutation.mutateAsync({
-      cwd,
-      repository: selectedPullRequest.repository,
-      number: selectedPullRequest.number,
-      event,
-      ...(body.trim().length > 0 ? { body: body.trim() } : {}),
-    });
-    toastManager.add({
-      type: "success",
-      title:
-        event === "approve"
-          ? "Review approved"
-          : event === "request_changes"
-            ? "Changes requested"
-            : "Review comment added",
     });
   };
 
@@ -1760,9 +1884,7 @@ export function GitRepositoryWorkspaceDialog({
           }
           onSelectPullRequest={setSelectedPullRequest}
           onSubmitComment={handleSubmitComment}
-          onSubmitReview={handleSubmitReview}
           isCommentPending={commentMutation.isPending}
-          isReviewPending={reviewMutation.isPending}
           isRefreshing={pullRequestInboxQuery.isFetching}
         />
       );
@@ -1819,10 +1941,27 @@ export function GitRepositoryWorkspaceDialog({
             <ToggleGroupItem value="workflows">Workflows</ToggleGroupItem>
           </ToggleGroup>
         </DialogHeader>
-        <DialogPanel className="min-h-[40rem] max-h-[70vh] overflow-hidden">
+        <DialogPanel className="h-[70vh] min-h-[40rem] overflow-hidden" scrollFade={false}>
           {renderTabBody()}
         </DialogPanel>
       </DialogPopup>
+
+      <Dialog open={isGhCliDialogOpen} onOpenChange={setIsGhCliDialogOpen}>
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>gh cli not detected</DialogTitle>
+            <DialogDescription>
+              {ghCliUnavailableMessage ??
+                "Install GitHub CLI and make sure `gh` is available on PATH to use pull requests and workflows."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter variant="bare">
+            <Button size="sm" onClick={() => setIsGhCliDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </Dialog>
   );
 }
