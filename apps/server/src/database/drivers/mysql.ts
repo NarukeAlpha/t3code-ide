@@ -124,7 +124,7 @@ export async function createMysqlDriver(config: MysqlDriverConfig): Promise<Data
     const header = result as ResultSetHeader;
     return createCommandResult({
       command: inferSqlCommand(sqlText),
-      affectedRowCount: typeof header.affectedRows === "number" ? header.affectedRows : null,
+      affectedRowCount: header.affectedRows,
     });
   };
 

@@ -479,7 +479,7 @@ export function DatabaseConnectionDialog({
                       onCheckedChange={(checked) =>
                         updateNetworkState((current) => ({
                           ...current,
-                          ssl: checked === true,
+                          ssl: checked,
                         }))
                       }
                     />
