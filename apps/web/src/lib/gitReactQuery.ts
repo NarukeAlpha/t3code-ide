@@ -1,6 +1,8 @@
 import {
   type EnvironmentId,
   type GitActionProgressEvent,
+  type GitHubPullRequestFilters,
+  type GitHubWorkflowTarget,
   type GitStackedAction,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -10,19 +12,95 @@ import {
   queryOptions,
   type QueryClient,
 } from "@tanstack/react-query";
-import { ensureEnvironmentApi } from "../environmentApi";
-import { requireEnvironmentConnection } from "../environments/runtime";
+import { ensureEnvironmentApi } from "~/environmentApi";
+import { requireEnvironmentConnection } from "~/environments/runtime";
 
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 const GIT_BRANCHES_PAGE_SIZE = 100;
+const GIT_HUB_PULL_REQUEST_DETAIL_STALE_TIME_MS = 10_000;
+const GIT_HUB_WORKFLOW_STALE_TIME_MS = 5_000;
+
+function normalizeGitHubPullRequestFilterKey(filters?: GitHubPullRequestFilters | null) {
+  return {
+    search: filters?.search?.trim() ?? "",
+    state: filters?.state ?? "open",
+    review: filters?.review ?? "any",
+    author: filters?.author?.trim() ?? "",
+    assignee: filters?.assignee?.trim() ?? "",
+    baseBranch: filters?.baseBranch?.trim() ?? "",
+    headBranch: filters?.headBranch?.trim() ?? "",
+    labels: [...(filters?.labels ?? [])].toSorted(),
+    draft: filters?.draft ?? "any",
+    sort: filters?.sort ?? "updated",
+  } as const;
+}
+
+function normalizeGitHubWorkflowTargetKey(target: GitHubWorkflowTarget | null) {
+  if (!target) {
+    return null;
+  }
+
+  return target.kind === "pull_request"
+    ? {
+        kind: target.kind,
+        repository: target.repository,
+        number: target.number,
+      }
+    : {
+        kind: target.kind,
+        remoteName: target.remoteName,
+        branch: target.branch,
+      };
+}
+
+function gitHubBaseQueryKey(environmentId: EnvironmentId | null, cwd: string | null) {
+  return ["git", "github", environmentId ?? null, cwd] as const;
+}
 
 export const gitQueryKeys = {
   all: ["git"] as const,
+  github: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    gitHubBaseQueryKey(environmentId, cwd),
   branches: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "branches", environmentId ?? null, cwd] as const,
   branchSearch: (environmentId: EnvironmentId | null, cwd: string | null, query: string) =>
     ["git", "branches", environmentId ?? null, cwd, "search", query] as const,
+  recentGraph: (environmentId: EnvironmentId | null, cwd: string | null, limit: number) =>
+    ["git", "recent-graph", environmentId ?? null, cwd, limit] as const,
+  githubWorkspace: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    [...gitHubBaseQueryKey(environmentId, cwd), "workspace"] as const,
+  pullRequestInbox: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    filters?: GitHubPullRequestFilters | null,
+    cursor?: string | null,
+    pageSize?: number | null,
+  ) =>
+    [
+      ...gitHubBaseQueryKey(environmentId, cwd),
+      "pull-request-inbox",
+      normalizeGitHubPullRequestFilterKey(filters),
+      cursor ?? null,
+      pageSize ?? null,
+    ] as const,
+  pullRequestDetail: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    repository: string | null,
+    number: number | null,
+  ) =>
+    [...gitHubBaseQueryKey(environmentId, cwd), "pull-request-detail", repository, number] as const,
+  workflowOverview: (
+    environmentId: EnvironmentId | null,
+    cwd: string | null,
+    target: GitHubWorkflowTarget | null,
+  ) =>
+    [
+      ...gitHubBaseQueryKey(environmentId, cwd),
+      "workflow-overview",
+      normalizeGitHubWorkflowTargetKey(target),
+    ] as const,
 };
 
 export const gitMutationKeys = {
@@ -36,6 +114,10 @@ export const gitMutationKeys = {
     ["git", "mutation", "pull", environmentId ?? null, cwd] as const,
   preparePullRequestThread: (environmentId: EnvironmentId | null, cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", environmentId ?? null, cwd] as const,
+  addPullRequestComment: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "github-comment", environmentId ?? null, cwd] as const,
+  submitPullRequestReview: (environmentId: EnvironmentId | null, cwd: string | null) =>
+    ["git", "mutation", "github-review", environmentId ?? null, cwd] as const,
 };
 
 export function invalidateGitQueries(
@@ -61,6 +143,28 @@ function invalidateGitBranchQueries(
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(environmentId, cwd) });
+}
+
+function invalidateGitHubWorkspaceQueries(
+  queryClient: QueryClient,
+  environmentId: EnvironmentId | null,
+  cwd: string | null,
+) {
+  if (cwd === null) {
+    return Promise.resolve();
+  }
+
+  return Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: gitQueryKeys.githubWorkspace(environmentId, cwd),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: [...gitQueryKeys.github(environmentId, cwd), "pull-request-inbox"],
+    }),
+    queryClient.invalidateQueries({
+      queryKey: [...gitQueryKeys.github(environmentId, cwd), "pull-request-detail"],
+    }),
+  ]).then(() => undefined);
 }
 
 export function gitBranchSearchInfiniteQueryOptions(input: {
@@ -118,6 +222,153 @@ export function gitResolvePullRequestQueryOptions(input: {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+  });
+}
+
+export function gitRecentGraphQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  limit?: number;
+  enabled?: boolean;
+}) {
+  const limit = input.limit ?? 300;
+  return queryOptions({
+    queryKey: gitQueryKeys.recentGraph(input.environmentId, input.cwd, limit),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("Git graph is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.git.getRecentGraph({ cwd: input.cwd, limit });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitHubWorkspaceQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.githubWorkspace(input.environmentId, input.cwd),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("GitHub workspace is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.github.getWorkspace({ cwd: input.cwd });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitHubPullRequestInboxQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  filters?: GitHubPullRequestFilters | null;
+  cursor?: string | null;
+  pageSize?: number;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.pullRequestInbox(
+      input.environmentId,
+      input.cwd,
+      input.filters,
+      input.cursor,
+      input.pageSize,
+    ),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId) {
+        throw new Error("GitHub pull request inbox is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.github.getPullRequestInbox({
+        cwd: input.cwd,
+        ...(input.filters ? { filters: input.filters } : {}),
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...(input.pageSize ? { pageSize: input.pageSize } : {}),
+      });
+    },
+    enabled: input.environmentId !== null && input.cwd !== null && (input.enabled ?? true),
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitHubPullRequestDetailQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  repository: string | null;
+  number: number | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.pullRequestDetail(
+      input.environmentId,
+      input.cwd,
+      input.repository,
+      input.number,
+    ),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId || !input.repository || input.number === null) {
+        throw new Error("GitHub pull request detail is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.github.getPullRequestDetail({
+        cwd: input.cwd,
+        repository: input.repository,
+        number: input.number,
+      });
+    },
+    enabled:
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.repository !== null &&
+      input.number !== null &&
+      (input.enabled ?? true),
+    staleTime: GIT_HUB_PULL_REQUEST_DETAIL_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+}
+
+export function gitHubWorkflowOverviewQueryOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  target: GitHubWorkflowTarget | null;
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.workflowOverview(input.environmentId, input.cwd, input.target),
+    queryFn: async () => {
+      if (!input.cwd || !input.environmentId || !input.target) {
+        throw new Error("GitHub workflows are unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      return api.github.getWorkflowOverview({
+        cwd: input.cwd,
+        target: input.target,
+      });
+    },
+    enabled:
+      input.environmentId !== null &&
+      input.cwd !== null &&
+      input.target !== null &&
+      (input.enabled ?? true),
+    staleTime: GIT_HUB_WORKFLOW_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    ...(input.refetchInterval !== undefined ? { refetchInterval: input.refetchInterval } : {}),
   });
 }
 
@@ -281,6 +532,52 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
     },
     onSuccess: async () => {
       await invalidateGitBranchQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitAddPullRequestCommentMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.addPullRequestComment(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Parameters<
+        ReturnType<typeof ensureEnvironmentApi>["github"]["addPullRequestComment"]
+      >[0],
+    ) => {
+      if (!input.environmentId) {
+        throw new Error("GitHub pull request comments are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).github.addPullRequestComment(args);
+    },
+    onSuccess: async () => {
+      await invalidateGitHubWorkspaceQueries(input.queryClient, input.environmentId, input.cwd);
+    },
+  });
+}
+
+export function gitSubmitPullRequestReviewMutationOptions(input: {
+  environmentId: EnvironmentId | null;
+  cwd: string | null;
+  queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: gitMutationKeys.submitPullRequestReview(input.environmentId, input.cwd),
+    mutationFn: async (
+      args: Parameters<
+        ReturnType<typeof ensureEnvironmentApi>["github"]["submitPullRequestReview"]
+      >[0],
+    ) => {
+      if (!input.environmentId) {
+        throw new Error("GitHub pull request reviews are unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).github.submitPullRequestReview(args);
+    },
+    onSuccess: async () => {
+      await invalidateGitHubWorkspaceQueries(input.queryClient, input.environmentId, input.cwd);
     },
   });
 }

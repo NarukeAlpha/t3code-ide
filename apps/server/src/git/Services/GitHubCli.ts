@@ -18,6 +18,7 @@ export interface GitHubPullRequestSummary {
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly state?: "open" | "closed" | "merged";
+  readonly updatedAt?: string | null;
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
@@ -39,15 +40,18 @@ export interface GitHubCliShape {
   readonly execute: (input: {
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;
+    readonly stdin?: string;
     readonly timeoutMs?: number;
   }) => Effect.Effect<ProcessRunResult, GitHubCliError>;
 
   /**
-   * List open pull requests for a head branch.
+   * List pull requests for a head branch in a specific repository.
    */
-  readonly listOpenPullRequests: (input: {
+  readonly listPullRequests: (input: {
     readonly cwd: string;
+    readonly repository: string;
     readonly headSelector: string;
+    readonly state?: "open" | "all";
     readonly limit?: number;
   }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
@@ -57,7 +61,15 @@ export interface GitHubCliShape {
   readonly getPullRequest: (input: {
     readonly cwd: string;
     readonly reference: string;
+    readonly repository?: string;
   }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+  /**
+   * Resolve the current GitHub repository name for the working directory.
+   */
+  readonly getRepositoryNameWithOwner: (input: {
+    readonly cwd: string;
+  }) => Effect.Effect<string | null, GitHubCliError>;
 
   /**
    * Resolve clone URLs for a GitHub repository.
@@ -76,6 +88,7 @@ export interface GitHubCliShape {
     readonly headSelector: string;
     readonly title: string;
     readonly bodyFile: string;
+    readonly repository?: string;
   }) => Effect.Effect<void, GitHubCliError>;
 
   /**

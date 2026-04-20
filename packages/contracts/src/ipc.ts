@@ -12,6 +12,8 @@ import type {
   GitListBranchesResult,
   GitPullInput,
   GitPullResult,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitStatusInput,
@@ -19,6 +21,19 @@ import type {
   GitCreateBranchResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
+import type {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailInput,
+  GitHubPullRequestInboxInput,
+  GitHubPullRequestInboxSnapshot,
+  GitHubPullRequestReviewInput,
+  GitHubWorkflowOverview,
+  GitHubWorkflowOverviewInput,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github.ts";
 import type {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -255,6 +270,7 @@ export interface EnvironmentApi {
     createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
     checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
     init: (input: GitInitInput) => Promise<void>;
+    getRecentGraph: (input: GitRecentGraphInput) => Promise<GitRecentGraphResult>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
@@ -268,6 +284,20 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  github: {
+    getWorkspace: (input: GitHubWorkspaceInput) => Promise<GitHubWorkspaceSnapshot>;
+    getPullRequestInbox: (
+      input: GitHubPullRequestInboxInput,
+    ) => Promise<GitHubPullRequestInboxSnapshot>;
+    getPullRequestDetail: (input: GitHubPullRequestDetailInput) => Promise<GitHubPullRequestDetail>;
+    getWorkflowOverview: (input: GitHubWorkflowOverviewInput) => Promise<GitHubWorkflowOverview>;
+    addPullRequestComment: (
+      input: GitHubPullRequestCommentInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
+    submitPullRequestReview: (
+      input: GitHubPullRequestReviewInput,
+    ) => Promise<GitHubWorkspaceWriteResult>;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
