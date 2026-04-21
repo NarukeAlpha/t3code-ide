@@ -36,7 +36,7 @@ import {
   resetSavedEnvironmentRuntimeStoreForTests,
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
-} from "../environments/runtime";
+} from "~/environments/runtime";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   removeInlineTerminalContextPlaceholder,
@@ -201,6 +201,38 @@ function createMockEnvironmentApi(input: {
     projects: {} as EnvironmentApi["projects"],
     filesystem: {
       browse: input.browse,
+    },
+    database: {
+      listConnections: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listConnections"],
+      inspectConvexProject: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["inspectConvexProject"],
+      scaffoldConvexHelpers: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["scaffoldConvexHelpers"],
+      upsertConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["upsertConnection"],
+      deleteConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["deleteConnection"],
+      testConnection: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["testConnection"],
+      listSchemas: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listSchemas"],
+      listTables: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["listTables"],
+      previewTable: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["previewTable"],
+      executeQuery: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["executeQuery"],
     },
     git: {} as EnvironmentApi["git"],
     orchestration: {

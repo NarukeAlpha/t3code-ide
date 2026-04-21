@@ -20,6 +20,28 @@ import type {
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
+  DatabaseDeleteConnectionInput,
+  DatabaseDeleteConnectionResult,
+  DatabaseExecuteQueryInput,
+  DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectInput,
+  DatabaseInspectConvexProjectResult,
+  DatabaseListConnectionsInput,
+  DatabaseListConnectionsResult,
+  DatabaseListSchemasInput,
+  DatabaseListSchemasResult,
+  DatabaseListTablesInput,
+  DatabaseListTablesResult,
+  DatabasePreviewTableInput,
+  DatabasePreviewTableResult,
+  DatabaseScaffoldConvexHelpersInput,
+  DatabaseScaffoldConvexHelpersResult,
+  DatabaseTestConnectionInput,
+  DatabaseTestConnectionResult,
+  DatabaseUpsertConnectionInput,
+  DatabaseUpsertConnectionResult,
+} from "./database.ts";
+import type {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileInput,
@@ -247,6 +269,28 @@ export interface EnvironmentApi {
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
+  };
+  database: {
+    listConnections: (
+      input: DatabaseListConnectionsInput,
+    ) => Promise<DatabaseListConnectionsResult>;
+    inspectConvexProject: (
+      input: DatabaseInspectConvexProjectInput,
+    ) => Promise<DatabaseInspectConvexProjectResult>;
+    scaffoldConvexHelpers: (
+      input: DatabaseScaffoldConvexHelpersInput,
+    ) => Promise<DatabaseScaffoldConvexHelpersResult>;
+    upsertConnection: (
+      input: DatabaseUpsertConnectionInput,
+    ) => Promise<DatabaseUpsertConnectionResult>;
+    deleteConnection: (
+      input: DatabaseDeleteConnectionInput,
+    ) => Promise<DatabaseDeleteConnectionResult>;
+    testConnection: (input: DatabaseTestConnectionInput) => Promise<DatabaseTestConnectionResult>;
+    listSchemas: (input: DatabaseListSchemasInput) => Promise<DatabaseListSchemasResult>;
+    listTables: (input: DatabaseListTablesInput) => Promise<DatabaseListTablesResult>;
+    previewTable: (input: DatabasePreviewTableInput) => Promise<DatabasePreviewTableResult>;
+    executeQuery: (input: DatabaseExecuteQueryInput) => Promise<DatabaseExecuteQueryResult>;
   };
   git: {
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;

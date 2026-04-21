@@ -5,6 +5,29 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import { OpenError, OpenInEditorInput } from "./editor.ts";
 import { AuthAccessStreamEvent } from "./auth.ts";
 import {
+  DatabaseDeleteConnectionInput,
+  DatabaseDeleteConnectionResult,
+  DatabaseError,
+  DatabaseExecuteQueryInput,
+  DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectInput,
+  DatabaseInspectConvexProjectResult,
+  DatabaseListConnectionsInput,
+  DatabaseListConnectionsResult,
+  DatabaseListSchemasInput,
+  DatabaseListSchemasResult,
+  DatabaseListTablesInput,
+  DatabaseListTablesResult,
+  DatabasePreviewTableInput,
+  DatabasePreviewTableResult,
+  DatabaseScaffoldConvexHelpersInput,
+  DatabaseScaffoldConvexHelpersResult,
+  DatabaseTestConnectionInput,
+  DatabaseTestConnectionResult,
+  DatabaseUpsertConnectionInput,
+  DatabaseUpsertConnectionResult,
+} from "./database.ts";
+import {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
   FilesystemBrowseError,
@@ -90,6 +113,18 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+
+  // Database methods
+  databaseListConnections: "database.listConnections",
+  databaseInspectConvexProject: "database.inspectConvexProject",
+  databaseScaffoldConvexHelpers: "database.scaffoldConvexHelpers",
+  databaseUpsertConnection: "database.upsertConnection",
+  databaseDeleteConnection: "database.deleteConnection",
+  databaseTestConnection: "database.testConnection",
+  databaseListSchemas: "database.listSchemas",
+  databaseListTables: "database.listTables",
+  databasePreviewTable: "database.previewTable",
+  databaseExecuteQuery: "database.executeQuery",
 
   // Git methods
   gitPull: "git.pull",
@@ -177,6 +212,69 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
   success: FilesystemBrowseResult,
   error: FilesystemBrowseError,
+});
+
+export const WsDatabaseListConnectionsRpc = Rpc.make(WS_METHODS.databaseListConnections, {
+  payload: DatabaseListConnectionsInput,
+  success: DatabaseListConnectionsResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseInspectConvexProjectRpc = Rpc.make(WS_METHODS.databaseInspectConvexProject, {
+  payload: DatabaseInspectConvexProjectInput,
+  success: DatabaseInspectConvexProjectResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseScaffoldConvexHelpersRpc = Rpc.make(
+  WS_METHODS.databaseScaffoldConvexHelpers,
+  {
+    payload: DatabaseScaffoldConvexHelpersInput,
+    success: DatabaseScaffoldConvexHelpersResult,
+    error: DatabaseError,
+  },
+);
+
+export const WsDatabaseUpsertConnectionRpc = Rpc.make(WS_METHODS.databaseUpsertConnection, {
+  payload: DatabaseUpsertConnectionInput,
+  success: DatabaseUpsertConnectionResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseDeleteConnectionRpc = Rpc.make(WS_METHODS.databaseDeleteConnection, {
+  payload: DatabaseDeleteConnectionInput,
+  success: DatabaseDeleteConnectionResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseTestConnectionRpc = Rpc.make(WS_METHODS.databaseTestConnection, {
+  payload: DatabaseTestConnectionInput,
+  success: DatabaseTestConnectionResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseListSchemasRpc = Rpc.make(WS_METHODS.databaseListSchemas, {
+  payload: DatabaseListSchemasInput,
+  success: DatabaseListSchemasResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseListTablesRpc = Rpc.make(WS_METHODS.databaseListTables, {
+  payload: DatabaseListTablesInput,
+  success: DatabaseListTablesResult,
+  error: DatabaseError,
+});
+
+export const WsDatabasePreviewTableRpc = Rpc.make(WS_METHODS.databasePreviewTable, {
+  payload: DatabasePreviewTableInput,
+  success: DatabasePreviewTableResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseExecuteQueryRpc = Rpc.make(WS_METHODS.databaseExecuteQuery, {
+  payload: DatabaseExecuteQueryInput,
+  success: DatabaseExecuteQueryResult,
+  error: DatabaseError,
 });
 
 export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
@@ -365,6 +463,16 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsDatabaseListConnectionsRpc,
+  WsDatabaseInspectConvexProjectRpc,
+  WsDatabaseScaffoldConvexHelpersRpc,
+  WsDatabaseUpsertConnectionRpc,
+  WsDatabaseDeleteConnectionRpc,
+  WsDatabaseTestConnectionRpc,
+  WsDatabaseListSchemasRpc,
+  WsDatabaseListTablesRpc,
+  WsDatabasePreviewTableRpc,
+  WsDatabaseExecuteQueryRpc,
   WsSubscribeGitStatusRpc,
   WsGitPullRpc,
   WsGitRefreshStatusRpc,

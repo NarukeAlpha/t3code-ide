@@ -54,6 +54,7 @@ import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptR
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
+import { DatabaseManager } from "./database/Services/DatabaseManager.ts";
 import {
   BootstrapCredentialService,
   type BootstrapCredentialChange,
@@ -147,6 +148,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const startup = yield* ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const databaseManager = yield* DatabaseManager;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
       const serverEnvironment = yield* ServerEnvironment;
@@ -190,7 +192,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         Schema.is(OrchestrationDispatchCommandError)(cause)
           ? cause
           : new OrchestrationDispatchCommandError({
-              message: cause instanceof Error ? cause.message : fallbackMessage,
+              message:
+                typeof cause === "object" &&
+                cause !== null &&
+                "message" in cause &&
+                typeof cause.message === "string"
+                  ? cause.message
+                  : fallbackMessage,
               cause,
             });
 
@@ -208,41 +216,42 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const enrichProjectEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<OrchestrationEvent, never, never> => {
-        switch (event.type) {
-          case "project.created":
-            return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
-              Effect.map((repositoryIdentity) => ({
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              })),
-            );
-          case "project.meta-updated":
-            return Effect.gen(function* () {
-              const workspaceRoot =
-                event.payload.workspaceRoot ??
-                (yield* orchestrationEngine.getReadModel()).projects.find(
-                  (project) => project.id === event.payload.projectId,
-                )?.workspaceRoot ??
-                null;
-              if (workspaceRoot === null) {
-                return event;
-              }
-
-              const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
-              return {
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              } satisfies OrchestrationEvent;
-            });
-          default:
-            return Effect.succeed(event);
+        if (event.type === "project.created") {
+          return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
+            Effect.map((repositoryIdentity) => ({
+              ...event,
+              payload: {
+                ...event.payload,
+                repositoryIdentity,
+              },
+            })),
+          );
         }
+
+        if (event.type === "project.meta-updated") {
+          return Effect.gen(function* () {
+            const workspaceRoot =
+              event.payload.workspaceRoot ??
+              (yield* orchestrationEngine.getReadModel()).projects.find(
+                (project) => project.id === event.payload.projectId,
+              )?.workspaceRoot ??
+              null;
+            if (workspaceRoot === null) {
+              return event;
+            }
+
+            const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
+            return {
+              ...event,
+              payload: {
+                ...event.payload,
+                repositoryIdentity,
+              },
+            } satisfies OrchestrationEvent;
+          });
+        }
+
+        return Effect.succeed(event);
       };
 
       const enrichOrchestrationEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
@@ -251,52 +260,53 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const toShellStreamEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
-        switch (event.type) {
-          case "project.created":
-          case "project.meta-updated":
-            return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
-              Effect.map((project) =>
-                Option.map(project, (nextProject) => ({
-                  kind: "project-upserted" as const,
-                  sequence: event.sequence,
-                  project: nextProject,
-                })),
-              ),
-              Effect.catch(() => Effect.succeed(Option.none())),
-            );
-          case "project.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "project-removed" as const,
+        if (event.type === "project.created" || event.type === "project.meta-updated") {
+          return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
+            Effect.map((project) =>
+              Option.map(project, (nextProject) => ({
+                kind: "project-upserted" as const,
                 sequence: event.sequence,
-                projectId: event.payload.projectId,
-              }),
-            );
-          case "thread.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "thread-removed" as const,
-                sequence: event.sequence,
-                threadId: event.payload.threadId,
-              }),
-            );
-          default:
-            if (event.aggregateKind !== "thread") {
-              return Effect.succeed(Option.none());
-            }
-            return projectionSnapshotQuery
-              .getThreadShellById(ThreadId.make(event.aggregateId))
-              .pipe(
-                Effect.map((thread) =>
-                  Option.map(thread, (nextThread) => ({
-                    kind: "thread-upserted" as const,
-                    sequence: event.sequence,
-                    thread: nextThread,
-                  })),
-                ),
-                Effect.catch(() => Effect.succeed(Option.none())),
-              );
+                project: nextProject,
+              })),
+            ),
+            Effect.catch(() => Effect.succeed(Option.none())),
+          );
         }
+
+        if (event.type === "project.deleted") {
+          return Effect.succeed(
+            Option.some({
+              kind: "project-removed" as const,
+              sequence: event.sequence,
+              projectId: event.payload.projectId,
+            }),
+          );
+        }
+
+        if (event.type === "thread.deleted") {
+          return Effect.succeed(
+            Option.some({
+              kind: "thread-removed" as const,
+              sequence: event.sequence,
+              threadId: event.payload.threadId,
+            }),
+          );
+        }
+
+        if (event.aggregateKind !== "thread") {
+          return Effect.succeed(Option.none());
+        }
+
+        return projectionSnapshotQuery.getThreadShellById(ThreadId.make(event.aggregateId)).pipe(
+          Effect.map((thread) =>
+            Option.map(thread, (nextThread) => ({
+              kind: "thread-upserted" as const,
+              sequence: event.sequence,
+              thread: nextThread,
+            })),
+          ),
+          Effect.catch(() => Effect.succeed(Option.none())),
+        );
       };
 
       const dispatchBootstrapTurnStart = (
@@ -820,6 +830,70 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.databaseListConnections]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseListConnections,
+            databaseManager.listConnections(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseInspectConvexProject]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseInspectConvexProject,
+            databaseManager.inspectConvexProject(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseScaffoldConvexHelpers]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseScaffoldConvexHelpers,
+            databaseManager.scaffoldConvexHelpers(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseUpsertConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseUpsertConnection,
+            databaseManager.upsertConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseDeleteConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseDeleteConnection,
+            databaseManager.deleteConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseTestConnection]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseTestConnection,
+            databaseManager.testConnection(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseListSchemas]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseListSchemas, databaseManager.listSchemas(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databaseListTables]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseListTables, databaseManager.listTables(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databasePreviewTable]: (input) =>
+          observeRpcEffect(WS_METHODS.databasePreviewTable, databaseManager.previewTable(input), {
+            "rpc.aggregate": "database",
+          }),
+        [WS_METHODS.databaseExecuteQuery]: (input) =>
+          observeRpcEffect(WS_METHODS.databaseExecuteQuery, databaseManager.executeQuery(input), {
+            "rpc.aggregate": "database",
+          }),
         [WS_METHODS.subscribeGitStatus]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribeGitStatus,

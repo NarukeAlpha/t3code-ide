@@ -34,7 +34,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
 import { useGitStatus } from "~/lib/gitStatusState";
-import { usePrimaryEnvironmentId } from "../environments/primary";
+import { usePrimaryEnvironmentId } from "~/environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
@@ -118,7 +118,7 @@ import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
-} from "../environments/runtime";
+} from "~/environments/runtime";
 import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
@@ -319,6 +319,8 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      databaseOpen?: boolean;
+      onToggleDatabase?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "server";
       draftId?: never;
@@ -327,6 +329,8 @@ type ChatViewProps =
       environmentId: EnvironmentId;
       threadId: ThreadId;
       onDiffPanelOpen?: () => void;
+      databaseOpen?: boolean;
+      onToggleDatabase?: () => void;
       reserveTitleBarControlInset?: boolean;
       routeKind: "draft";
       draftId: DraftId;
@@ -589,6 +593,8 @@ export default function ChatView(props: ChatViewProps) {
     threadId,
     routeKind,
     onDiffPanelOpen,
+    databaseOpen = false,
+    onToggleDatabase,
     reserveTitleBarControlInset = true,
   } = props;
   const draftId = routeKind === "draft" ? props.draftId : null;
@@ -1383,8 +1389,11 @@ export default function ChatView(props: ChatViewProps) {
           continue;
         }
         const turnCount =
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-        if (typeof turnCount !== "number") {
+          summary.checkpointTurnCount ??
+          (Object.hasOwn(inferredCheckpointTurnCountByTurnId, summary.turnId)
+            ? inferredCheckpointTurnCountByTurnId[summary.turnId]
+            : undefined);
+        if (turnCount === undefined) {
           break;
         }
         byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
@@ -1479,6 +1488,9 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     if (!diffOpen) {
+      if (databaseOpen) {
+        onToggleDatabase?.();
+      }
       onDiffPanelOpen?.();
     }
     void navigate({
@@ -1493,7 +1505,16 @@ export default function ChatView(props: ChatViewProps) {
         return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
       },
     });
-  }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  }, [
+    databaseOpen,
+    diffOpen,
+    environmentId,
+    isServerThread,
+    navigate,
+    onDiffPanelOpen,
+    onToggleDatabase,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -1652,8 +1673,7 @@ export default function ChatView(props: ChatViewProps) {
         terminalState.terminalIds[0] ||
         DEFAULT_THREAD_TERMINAL_ID;
       const isBaseTerminalBusy = terminalState.runningTerminalIds.includes(baseTerminalId);
-      const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
-      const shouldCreateNewTerminal = wantsNewTerminal;
+      const shouldCreateNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
       const targetTerminalId = shouldCreateNewTerminal
         ? `terminal-${randomUUID()}`
         : baseTerminalId;
@@ -3245,12 +3265,14 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          databaseOpen={databaseOpen}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          {...(activeProject && onToggleDatabase ? { onToggleDatabase } : {})}
         />
       </header>
 

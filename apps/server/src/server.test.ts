@@ -105,6 +105,7 @@ import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { DatabaseManager, type DatabaseManagerShape } from "./database/Services/DatabaseManager.ts";
 
 const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
@@ -192,16 +193,6 @@ const makeDefaultOrchestrationThreadShell = (
     ...overrides,
   };
 };
-
-const workspaceAndProjectServicesLayer = Layer.mergeAll(
-  WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
-  WorkspaceFileSystemLive.pipe(
-    Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
-  ),
-  ProjectFaviconResolverLive,
-);
 
 const browserOtlpTracingLayer = Layer.mergeAll(
   FetchHttpClient.layer,
@@ -335,6 +326,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    databaseManager?: Partial<DatabaseManagerShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -499,6 +491,11 @@ const buildAppUnderTest = (options?: {
               diff: "",
             }),
           ...options?.layers?.checkpointDiffQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(DatabaseManager)({
+          ...options?.layers?.databaseManager,
         }),
       ),
     );
@@ -737,7 +734,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const path = yield* Path.Path;
       const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
-      yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
+      yield* fileSystem.writeFileString(indexPath, '<html lang="en">router-static-ok</html>');
 
       yield* buildAppUnderTest({ config: { staticDir } });
 
