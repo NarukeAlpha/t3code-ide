@@ -1,6 +1,9 @@
 import {
   DatabaseConnectionId,
   DatabaseConnectionLabel,
+  DatabaseConvexGatewayBaseUrl,
+  DatabaseConvexSchemaFilePath,
+  DatabaseConvexSyncTarget,
   DatabaseEngine,
   DatabaseHost,
   DatabasePort,
@@ -58,6 +61,12 @@ const NetworkConfig = Schema.Struct({
   ssl: Schema.Boolean,
 });
 
+const ConvexConfig = Schema.Struct({
+  gatewayBaseUrl: DatabaseConvexGatewayBaseUrl,
+  schemaFilePath: DatabaseConvexSchemaFilePath,
+  syncTarget: Schema.optional(DatabaseConvexSyncTarget),
+});
+
 const decodeSavedDatabaseConnection = Schema.decodeUnknownEffect(SavedDatabaseConnection);
 
 function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: string) {
@@ -81,6 +90,12 @@ function serializeConnectionConfig(connection: SavedDatabaseConnection): string 
         database: connection.database,
         user: connection.user,
         ssl: connection.ssl,
+      });
+    case "convex":
+      return JSON.stringify({
+        gatewayBaseUrl: connection.gatewayBaseUrl,
+        schemaFilePath: connection.schemaFilePath,
+        syncTarget: connection.syncTarget,
       });
   }
 }
@@ -113,6 +128,21 @@ function decodeConnectionRow(row: typeof ProjectDatabaseConnectionDbRow.Type) {
             database: config.database,
             user: config.user,
             ssl: config.ssl,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          }),
+        ),
+      );
+    case "convex":
+      return Schema.decodeUnknownEffect(ConvexConfig)(row.config).pipe(
+        Effect.flatMap((config) =>
+          decodeSavedDatabaseConnection({
+            id: row.connectionId,
+            engine: row.engine,
+            label: row.label,
+            gatewayBaseUrl: config.gatewayBaseUrl,
+            schemaFilePath: config.schemaFilePath,
+            syncTarget: config.syncTarget ?? "dev",
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
           }),

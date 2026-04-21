@@ -838,6 +838,22 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               "rpc.aggregate": "database",
             },
           ),
+        [WS_METHODS.databaseInspectConvexProject]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseInspectConvexProject,
+            databaseManager.inspectConvexProject(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
+        [WS_METHODS.databaseScaffoldConvexHelpers]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.databaseScaffoldConvexHelpers,
+            databaseManager.scaffoldConvexHelpers(input),
+            {
+              "rpc.aggregate": "database",
+            },
+          ),
         [WS_METHODS.databaseUpsertConnection]: (input) =>
           observeRpcEffect(
             WS_METHODS.databaseUpsertConnection,

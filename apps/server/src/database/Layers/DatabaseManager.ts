@@ -5,7 +5,9 @@ import {
   DatabaseDatabaseName,
   DatabaseError,
   DatabaseHost,
+  DatabaseInspectConvexProjectResult,
   DatabasePort,
+  DatabaseScaffoldConvexHelpersResult,
   DatabaseUsername,
   type DatabaseConnectionDraft,
   type DatabaseDeleteConnectionResult,
@@ -22,13 +24,21 @@ import {
 import { Effect, Layer, Option, Schema } from "effect";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { inspectConvexProject } from "../convex/ProjectInspector.ts";
+import { scaffoldConvexHelpers } from "../convex/Scaffolder.ts";
+import {
+  normalizeConvexGatewayBaseUrl,
+  toDatabaseError as createConvexDatabaseError,
+} from "../convex/shared.ts";
 import { ProjectDatabaseConnectionRepository } from "../Services/ProjectDatabaseConnectionRepository.ts";
 import { ProjectDatabaseConnectionSecrets } from "../Services/ProjectDatabaseConnectionSecrets.ts";
+import { ProjectDatabaseConnectionSharedSecrets } from "../Services/ProjectDatabaseConnectionSharedSecrets.ts";
 import {
   DatabaseManager,
   type DatabaseDriver,
   type DatabaseManagerShape,
 } from "../Services/DatabaseManager.ts";
+import { createConvexDriver, type ConvexDriverConfig } from "../drivers/convex.ts";
 import { createMysqlDriver, type MysqlDriverConfig } from "../drivers/mysql.ts";
 import { createPostgresDriver, type PostgresDriverConfig } from "../drivers/postgres.ts";
 import { findTrailingSqlAfterFirstStatement } from "../drivers/shared.ts";
@@ -39,6 +49,7 @@ const CACHED_DRIVER_IDLE_TTL_MS = 5 * 60 * 1000;
 type SavedSqliteConnection = Extract<SavedDatabaseConnection, { readonly engine: "sqlite" }>;
 type SavedMysqlConnection = Extract<SavedDatabaseConnection, { readonly engine: "mysql" }>;
 type SavedPostgresConnection = Extract<SavedDatabaseConnection, { readonly engine: "postgres" }>;
+type SavedConvexConnection = Extract<SavedDatabaseConnection, { readonly engine: "convex" }>;
 
 type SqliteResolvedRuntimeConnection = {
   readonly connection: SavedSqliteConnection;
@@ -58,16 +69,27 @@ type PostgresResolvedRuntimeConnection = {
   readonly password: string | null;
 };
 
+type ConvexResolvedRuntimeConnection = {
+  readonly connection: SavedConvexConnection;
+  readonly runtime: ConvexDriverConfig;
+  readonly password: null;
+  readonly sharedSecret: string;
+};
+
 type NetworkResolvedRuntimeConnection =
   | MysqlResolvedRuntimeConnection
   | PostgresResolvedRuntimeConnection;
 
-type ResolvedRuntimeConnection = SqliteResolvedRuntimeConnection | NetworkResolvedRuntimeConnection;
+type ResolvedRuntimeConnection =
+  | SqliteResolvedRuntimeConnection
+  | NetworkResolvedRuntimeConnection
+  | ConvexResolvedRuntimeConnection;
 
 interface NormalizedDraft {
   readonly projectId: ProjectId;
   readonly connection: SavedDatabaseConnection;
   readonly password: string | null;
+  readonly sharedSecret: string | null;
 }
 
 interface CachedDriverEntry {
@@ -195,11 +217,25 @@ function isMysqlResolvedRuntimeConnection(
   return resolved.connection.engine === "mysql";
 }
 
+function isConvexResolvedRuntimeConnection(
+  resolved: ResolvedRuntimeConnection,
+): resolved is ConvexResolvedRuntimeConnection {
+  return resolved.connection.engine === "convex";
+}
+
 function buildFingerprint(resolved: ResolvedRuntimeConnection) {
   if (isSqliteResolvedRuntimeConnection(resolved)) {
     return JSON.stringify({
       engine: "sqlite",
       filePath: resolved.runtime.filePath,
+    });
+  }
+  if (isConvexResolvedRuntimeConnection(resolved)) {
+    return JSON.stringify({
+      engine: "convex",
+      gatewayBaseUrl: resolved.runtime.gatewayBaseUrl,
+      schemaFilePath: resolved.runtime.schemaFilePath,
+      sharedSecret: resolved.sharedSecret,
     });
   }
   return JSON.stringify({
@@ -228,6 +264,7 @@ async function disposeDriverQuietly(driver: DatabaseDriver) {
 const makeDatabaseManager = Effect.gen(function* () {
   const connections = yield* ProjectDatabaseConnectionRepository;
   const secrets = yield* ProjectDatabaseConnectionSecrets;
+  const sharedSecrets = yield* ProjectDatabaseConnectionSharedSecrets;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const cachedDrivers = new Map<string, CachedDriverEntry>();
 
@@ -283,6 +320,14 @@ const makeDatabaseManager = Effect.gen(function* () {
       .getPassword(input)
       .pipe(Effect.mapError(mapUnknownToDatabaseError("Failed to read database credentials.")));
 
+  const resolveConnectionSharedSecret = (input: {
+    readonly projectId: ProjectId;
+    readonly connectionId: DatabaseConnectionId;
+  }) =>
+    sharedSecrets
+      .getSharedSecret(input)
+      .pipe(Effect.mapError(mapUnknownToDatabaseError("Failed to read Convex shared secret.")));
+
   const resolveRuntimeConnection = (connection: SavedDatabaseConnection, projectId: ProjectId) =>
     Effect.gen(function* () {
       switch (connection.engine) {
@@ -334,6 +379,29 @@ const makeDatabaseManager = Effect.gen(function* () {
             password,
           } satisfies PostgresResolvedRuntimeConnection;
         }
+        case "convex": {
+          const projectRoot = yield* resolveProjectRoot(projectId);
+          const sharedSecret = yield* resolveConnectionSharedSecret({
+            projectId,
+            connectionId: connection.id,
+          });
+          if (sharedSecret === null) {
+            return yield* toDatabaseError(
+              `Convex connection ${connection.id} is missing its shared secret. Edit the connection and save it again.`,
+            );
+          }
+          return {
+            connection,
+            runtime: {
+              projectRoot,
+              schemaFilePath: connection.schemaFilePath,
+              gatewayBaseUrl: connection.gatewayBaseUrl,
+              sharedSecret,
+            },
+            password: null,
+            sharedSecret,
+          } satisfies ConvexResolvedRuntimeConnection;
+        }
       }
     });
 
@@ -342,6 +410,9 @@ const makeDatabaseManager = Effect.gen(function* () {
       try: async () => {
         if (isSqliteResolvedRuntimeConnection(resolved)) {
           return createSqliteDriver(resolved.runtime);
+        }
+        if (isConvexResolvedRuntimeConnection(resolved)) {
+          return createConvexDriver(resolved.runtime);
         }
         if (isMysqlResolvedRuntimeConnection(resolved)) {
           return createMysqlDriver(resolved.runtime);
@@ -390,7 +461,10 @@ const makeDatabaseManager = Effect.gen(function* () {
     fn: (driver: DatabaseDriver) => Promise<T>,
   ) =>
     Effect.gen(function* () {
-      if (isSqliteResolvedRuntimeConnection(resolved)) {
+      if (
+        isSqliteResolvedRuntimeConnection(resolved) ||
+        isConvexResolvedRuntimeConnection(resolved)
+      ) {
         const driver = yield* createDriver(resolved);
         return yield* Effect.tryPromise({
           try: async () => {
@@ -427,38 +501,74 @@ const makeDatabaseManager = Effect.gen(function* () {
       catch: () => toDatabaseError("Failed to invalidate cached database connection."),
     }).pipe(Effect.orDie);
 
-  const writeConnectionPassword = (input: {
+  const writeConnectionSecrets = (input: {
     readonly projectId: ProjectId;
     readonly connectionId: DatabaseConnectionId;
     readonly password: string | null;
+    readonly sharedSecret: string | null;
   }) =>
-    (input.password === null
-      ? secrets.removePassword({
-          projectId: input.projectId,
-          connectionId: input.connectionId,
-        })
-      : secrets.setPassword({
-          projectId: input.projectId,
-          connectionId: input.connectionId,
-          password: input.password,
-        })
+    Effect.all(
+      [
+        input.password === null
+          ? secrets.removePassword({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            })
+          : secrets.setPassword({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+              password: input.password,
+            }),
+        input.sharedSecret === null
+          ? sharedSecrets.removeSharedSecret({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            })
+          : sharedSecrets.setSharedSecret({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+              sharedSecret: input.sharedSecret,
+            }),
+      ],
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
     ).pipe(Effect.mapError(mapUnknownToDatabaseError("Failed to store database credentials.")));
 
-  const restoreConnectionPassword = (input: {
+  const restoreConnectionSecrets = (input: {
     readonly projectId: ProjectId;
     readonly connectionId: DatabaseConnectionId;
     readonly password: string | null;
+    readonly sharedSecret: string | null;
   }) =>
-    (input.password === null
-      ? secrets.removePassword({
-          projectId: input.projectId,
-          connectionId: input.connectionId,
-        })
-      : secrets.setPassword({
-          projectId: input.projectId,
-          connectionId: input.connectionId,
-          password: input.password,
-        })
+    Effect.all(
+      [
+        input.password === null
+          ? secrets.removePassword({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            })
+          : secrets.setPassword({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+              password: input.password,
+            }),
+        input.sharedSecret === null
+          ? sharedSecrets.removeSharedSecret({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            })
+          : sharedSecrets.setSharedSecret({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+              sharedSecret: input.sharedSecret,
+            }),
+      ],
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
     ).pipe(Effect.ignore({ log: true }));
 
   const normalizeDraft = (
@@ -469,6 +579,14 @@ const makeDatabaseManager = Effect.gen(function* () {
         input.connectionId === undefined
           ? null
           : yield* resolveConnectionPassword({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            });
+
+      const previousSharedSecret =
+        input.connectionId === undefined
+          ? null
+          : yield* resolveConnectionSharedSecret({
               projectId: input.projectId,
               connectionId: input.connectionId,
             });
@@ -506,6 +624,7 @@ const makeDatabaseManager = Effect.gen(function* () {
               updatedAt: now,
             },
             password: null,
+            sharedSecret: null,
           };
         case "mysql":
         case "postgres": {
@@ -544,6 +663,29 @@ const makeDatabaseManager = Effect.gen(function* () {
               updatedAt: now,
             },
             password,
+            sharedSecret: null,
+          };
+        }
+        case "convex": {
+          const gatewayBaseUrl = yield* Effect.try({
+            try: () => normalizeConvexGatewayBaseUrl(input.gatewayBaseUrl),
+            catch: mapUnknownToDatabaseError("Invalid Convex connection."),
+          });
+
+          return {
+            projectId: input.projectId,
+            connection: {
+              id: connectionId,
+              engine: "convex",
+              label: input.label,
+              gatewayBaseUrl,
+              schemaFilePath: input.schemaFilePath,
+              syncTarget: input.syncTarget,
+              createdAt,
+              updatedAt: now,
+            },
+            password: null,
+            sharedSecret: input.sharedSecret ?? previousSharedSecret ?? null,
           };
         }
       }
@@ -553,6 +695,7 @@ const makeDatabaseManager = Effect.gen(function* () {
     projectId: ProjectId,
     connection: SavedDatabaseConnection,
     password: string | null,
+    sharedSecret: string | null,
   ) =>
     Effect.gen(function* () {
       const resolved =
@@ -571,18 +714,42 @@ const makeDatabaseManager = Effect.gen(function* () {
                 },
                 password,
               } satisfies MysqlResolvedRuntimeConnection)
-            : ({
-                connection,
-                runtime: {
-                  host: connection.host,
-                  port: connection.port,
-                  database: connection.database,
-                  user: connection.user,
+            : connection.engine === "postgres"
+              ? ({
+                  connection,
+                  runtime: {
+                    host: connection.host,
+                    port: connection.port,
+                    database: connection.database,
+                    user: connection.user,
+                    password,
+                    ssl: connection.ssl,
+                  },
                   password,
-                  ssl: connection.ssl,
-                },
-                password,
-              } satisfies PostgresResolvedRuntimeConnection);
+                } satisfies PostgresResolvedRuntimeConnection)
+              : ({
+                  connection,
+                  runtime: {
+                    projectRoot: yield* resolveProjectRoot(projectId),
+                    schemaFilePath: connection.schemaFilePath,
+                    gatewayBaseUrl: connection.gatewayBaseUrl,
+                    sharedSecret:
+                      sharedSecret ??
+                      (() => {
+                        throw createConvexDatabaseError(
+                          "Convex connections require a shared secret before they can be tested.",
+                        );
+                      })(),
+                  },
+                  password: null,
+                  sharedSecret:
+                    sharedSecret ??
+                    (() => {
+                      throw createConvexDatabaseError(
+                        "Convex connections require a shared secret before they can be tested.",
+                      );
+                    })(),
+                } satisfies ConvexResolvedRuntimeConnection);
 
       const driver = yield* createDriver(resolved);
       yield* Effect.tryPromise({
@@ -617,12 +784,25 @@ const makeDatabaseManager = Effect.gen(function* () {
               projectId: input.projectId,
               connectionId: input.connectionId,
             });
+      const previousSharedSecret =
+        input.connectionId === undefined
+          ? null
+          : yield* resolveConnectionSharedSecret({
+              projectId: input.projectId,
+              connectionId: input.connectionId,
+            });
 
-      yield* testResolvedConnection(input.projectId, normalized.connection, normalized.password);
-      yield* writeConnectionPassword({
+      yield* testResolvedConnection(
+        input.projectId,
+        normalized.connection,
+        normalized.password,
+        normalized.sharedSecret,
+      );
+      yield* writeConnectionSecrets({
         projectId: input.projectId,
         connectionId: normalized.connection.id,
         password: normalized.password,
+        sharedSecret: normalized.sharedSecret,
       });
 
       yield* connections
@@ -633,10 +813,11 @@ const makeDatabaseManager = Effect.gen(function* () {
         .pipe(
           Effect.mapError(mapUnknownToDatabaseError("Failed to save database connection.")),
           Effect.catch((error) =>
-            restoreConnectionPassword({
+            restoreConnectionSecrets({
               projectId: input.projectId,
               connectionId: normalized.connection.id,
               password: previousPassword,
+              sharedSecret: previousSharedSecret,
             }).pipe(Effect.flatMap(() => Effect.fail(error))),
           ),
         );
@@ -655,18 +836,23 @@ const makeDatabaseManager = Effect.gen(function* () {
     Effect.gen(function* () {
       const connection = yield* resolveSavedConnection(input);
       const previousPassword = yield* resolveConnectionPassword(input);
+      const previousSharedSecret = yield* resolveConnectionSharedSecret(input);
 
-      yield* secrets
-        .removePassword(input)
-        .pipe(Effect.mapError(mapUnknownToDatabaseError("Failed to remove database credentials.")));
+      yield* writeConnectionSecrets({
+        projectId: input.projectId,
+        connectionId: input.connectionId,
+        password: null,
+        sharedSecret: null,
+      }).pipe(Effect.mapError(mapUnknownToDatabaseError("Failed to remove database credentials.")));
 
       yield* connections.deleteById(input).pipe(
         Effect.mapError(mapUnknownToDatabaseError("Failed to delete database connection.")),
         Effect.catch((error) =>
-          restoreConnectionPassword({
+          restoreConnectionSecrets({
             projectId: input.projectId,
             connectionId: input.connectionId,
             password: previousPassword,
+            sharedSecret: previousSharedSecret,
           }).pipe(Effect.flatMap(() => Effect.fail(error))),
         ),
       );
@@ -684,11 +870,42 @@ const makeDatabaseManager = Effect.gen(function* () {
   const testConnection: DatabaseManagerShape["testConnection"] = (input) =>
     Effect.gen(function* () {
       const normalized = yield* normalizeDraft(input);
-      yield* testResolvedConnection(input.projectId, normalized.connection, normalized.password);
+      yield* testResolvedConnection(
+        input.projectId,
+        normalized.connection,
+        normalized.password,
+        normalized.sharedSecret,
+      );
       return {
         ok: true,
       } satisfies DatabaseTestConnectionResult;
     });
+
+  const inspectConvexProjectForManager: DatabaseManagerShape["inspectConvexProject"] = (input) =>
+    resolveProjectRoot(input.projectId).pipe(
+      Effect.flatMap((projectRoot) =>
+        Effect.tryPromise({
+          try: () => inspectConvexProject({ projectRoot }),
+          catch: mapUnknownToDatabaseError("Failed to inspect the Convex project."),
+        }),
+      ),
+      Effect.map((result): DatabaseInspectConvexProjectResult => result),
+    );
+
+  const scaffoldConvexHelpersForManager: DatabaseManagerShape["scaffoldConvexHelpers"] = (input) =>
+    resolveProjectRoot(input.projectId).pipe(
+      Effect.flatMap((projectRoot) =>
+        Effect.tryPromise({
+          try: () =>
+            scaffoldConvexHelpers({
+              projectRoot,
+              syncTarget: input.syncTarget,
+            }),
+          catch: mapUnknownToDatabaseError("Failed to scaffold Convex helper files."),
+        }),
+      ),
+      Effect.map((result): DatabaseScaffoldConvexHelpersResult => result),
+    );
 
   const listSchemas: DatabaseManagerShape["listSchemas"] = (input) =>
     Effect.gen(function* () {
@@ -752,6 +969,8 @@ const makeDatabaseManager = Effect.gen(function* () {
     upsertConnection,
     deleteConnection,
     testConnection,
+    inspectConvexProject: inspectConvexProjectForManager,
+    scaffoldConvexHelpers: scaffoldConvexHelpersForManager,
     listSchemas,
     listTables,
     previewTable,

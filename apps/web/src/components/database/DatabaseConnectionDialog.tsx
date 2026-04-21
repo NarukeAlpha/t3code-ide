@@ -1,18 +1,22 @@
 import {
+  type DatabaseInspectConvexProjectResult,
   type DatabaseConnectionDraft,
   type DatabaseConnectionId,
   type EnvironmentId,
   type ProjectId,
   type SavedDatabaseConnection,
 } from "@t3tools/contracts";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DatabaseIcon, LinkIcon, ShieldIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  databaseInspectConvexProjectQueryOptions,
+  databaseScaffoldConvexHelpersMutationOptions,
   databaseTestConnectionMutationOptions,
   databaseUpsertConnectionMutationOptions,
 } from "~/lib/databaseReactQuery";
+import { readLocalApi } from "~/localApi";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -47,6 +51,15 @@ type DatabaseConnectionFormState =
       password: string;
       ssl: boolean;
       dsn: string;
+    }
+  | {
+      engine: "convex";
+      connectionId: DatabaseConnectionId | null;
+      label: string;
+      gatewayBaseUrl: string;
+      schemaFilePath: string;
+      syncTarget: "dev" | "prod";
+      sharedSecret: string;
     };
 
 interface DatabaseConnectionDialogProps {
@@ -79,6 +92,18 @@ function buildInitialFormState(
     };
   }
 
+  if (connection.engine === "convex") {
+    return {
+      engine: "convex",
+      connectionId: connection.id,
+      label: connection.label,
+      gatewayBaseUrl: connection.gatewayBaseUrl,
+      schemaFilePath: connection.schemaFilePath,
+      syncTarget: connection.syncTarget,
+      sharedSecret: "",
+    };
+  }
+
   return {
     engine: connection.engine,
     connectionId: connection.id,
@@ -105,6 +130,19 @@ function buildDraftInput(
       engine: "sqlite",
       label: formState.label,
       filePath: formState.filePath,
+    };
+  }
+
+  if (formState.engine === "convex") {
+    return {
+      projectId,
+      ...(formState.connectionId ? { connectionId: formState.connectionId } : {}),
+      engine: "convex",
+      label: formState.label,
+      gatewayBaseUrl: formState.gatewayBaseUrl,
+      schemaFilePath: formState.schemaFilePath,
+      syncTarget: formState.syncTarget,
+      ...(formState.sharedSecret.trim().length > 0 ? { sharedSecret: formState.sharedSecret } : {}),
     };
   }
 
@@ -147,6 +185,23 @@ function asErrorMessage(error: unknown) {
   return "The database request failed.";
 }
 
+function applyConvexInspectionPrefill(
+  current: Extract<DatabaseConnectionFormState, { engine: "convex" }>,
+  inspection: DatabaseInspectConvexProjectResult,
+) {
+  return {
+    ...current,
+    gatewayBaseUrl:
+      current.gatewayBaseUrl.trim().length > 0
+        ? current.gatewayBaseUrl
+        : (inspection.gatewayBaseUrl ?? ""),
+    schemaFilePath:
+      current.schemaFilePath.trim().length > 0
+        ? current.schemaFilePath
+        : (inspection.schemaFilePath ?? ""),
+  };
+}
+
 export function DatabaseConnectionDialog({
   open,
   environmentId,
@@ -162,6 +217,17 @@ export function DatabaseConnectionDialog({
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [feedbackTone, setFeedbackTone] = useState<"success" | "error">("success");
 
+  const connectionResetKey = connection ? `${connection.id}:${connection.updatedAt}` : "new";
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
+  const isConvexEngine = formState.engine === "convex";
+  const convexInspectionQuery = useQuery(
+    databaseInspectConvexProjectQueryOptions({
+      environmentId,
+      projectId,
+      enabled: open && isConvexEngine,
+    }),
+  );
   const testMutation = useMutation(
     databaseTestConnectionMutationOptions({
       environmentId,
@@ -174,22 +240,47 @@ export function DatabaseConnectionDialog({
       queryClient,
     }),
   );
+  const scaffoldMutation = useMutation(
+    databaseScaffoldConvexHelpersMutationOptions({
+      environmentId,
+      projectId,
+      queryClient,
+    }),
+  );
   const resetTestMutation = testMutation.reset;
   const resetSaveMutation = saveMutation.reset;
+  const resetScaffoldMutation = scaffoldMutation.reset;
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    setFormState(buildInitialFormState(connection));
+    setFormState(buildInitialFormState(connectionRef.current));
     setFeedbackMessage(null);
     setFeedbackTone("success");
     resetTestMutation();
     resetSaveMutation();
-  }, [connection, open, resetSaveMutation, resetTestMutation]);
+    resetScaffoldMutation();
+  }, [connectionResetKey, open, resetSaveMutation, resetScaffoldMutation, resetTestMutation]);
+
+  useEffect(() => {
+    if (!open || formState.engine !== "convex" || !convexInspectionQuery.data) {
+      return;
+    }
+    setFormState((current) => {
+      if (current.engine !== "convex") {
+        return current;
+      }
+      const next = applyConvexInspectionPrefill(current, convexInspectionQuery.data);
+      return next.gatewayBaseUrl === current.gatewayBaseUrl &&
+        next.schemaFilePath === current.schemaFilePath
+        ? current
+        : next;
+    });
+  }, [convexInspectionQuery.data, formState.engine, open]);
 
   const dialogTitle = connection ? "Edit database" : "Add database";
-  const isBusy = testMutation.isPending || saveMutation.isPending;
+  const isBusy = testMutation.isPending || saveMutation.isPending || scaffoldMutation.isPending;
 
   const networkEngineLabel =
     formState.engine === "mysql"
@@ -204,11 +295,12 @@ export function DatabaseConnectionDialog({
         { engine: "sqlite" as const, label: "SQLite" },
         { engine: "mysql" as const, label: "MySQL" },
         { engine: "postgres" as const, label: "Postgres" },
+        { engine: "convex" as const, label: "Convex" },
       ] as const,
     [],
   );
 
-  const applyEngine = (engine: "sqlite" | "mysql" | "postgres") => {
+  const applyEngine = (engine: DatabaseConnectionFormState["engine"]) => {
     setFeedbackMessage(null);
     setFormState((current) => {
       if (current.engine === engine) {
@@ -220,6 +312,17 @@ export function DatabaseConnectionDialog({
           connectionId: current.connectionId,
           label: current.label,
           filePath: "",
+        };
+      }
+      if (engine === "convex") {
+        return {
+          engine: "convex",
+          connectionId: current.connectionId,
+          label: current.label,
+          gatewayBaseUrl: "",
+          schemaFilePath: "",
+          syncTarget: "dev",
+          sharedSecret: "",
         };
       }
       return {
@@ -244,7 +347,7 @@ export function DatabaseConnectionDialog({
     ) => Extract<DatabaseConnectionFormState, { engine: "mysql" | "postgres" }>,
   ) => {
     setFormState((current) => {
-      if (current.engine === "sqlite") {
+      if (current.engine === "sqlite" || current.engine === "convex") {
         return current;
       }
       return updater(current);
@@ -257,6 +360,41 @@ export function DatabaseConnectionDialog({
       await testMutation.mutateAsync(draft);
       setFeedbackTone("success");
       setFeedbackMessage("Connection succeeded.");
+    } catch (error) {
+      setFeedbackTone("error");
+      setFeedbackMessage(asErrorMessage(error));
+    }
+  };
+
+  const runScaffold = async () => {
+    if (formState.engine !== "convex") {
+      return;
+    }
+
+    const localApi = readLocalApi();
+    const confirmed = localApi
+      ? await localApi.dialogs.confirm(
+          `Create or update Convex helper files and push them to Convex ${formState.syncTarget}?`,
+        )
+      : window.confirm(
+          `Create or update Convex helper files and push them to Convex ${formState.syncTarget}?`,
+        );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await scaffoldMutation.mutateAsync({
+        projectId,
+        syncTarget: formState.syncTarget,
+      });
+      const touchedPaths = [...result.writtenPaths, ...result.alreadyPresentPaths];
+      setFeedbackTone("success");
+      setFeedbackMessage(
+        touchedPaths.length > 0
+          ? `Convex helper files are ready and pushed to ${result.syncTarget} with ${result.syncCommand}: ${touchedPaths.join(", ")}.`
+          : `Convex helper files were already in place and pushed to ${result.syncTarget} with ${result.syncCommand}.`,
+      );
     } catch (error) {
       setFeedbackTone("error");
       setFeedbackMessage(asErrorMessage(error));
@@ -281,11 +419,11 @@ export function DatabaseConnectionDialog({
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>
-            Save a project-scoped database connection for SQLite, MySQL, or Postgres.
+            Save a project-scoped database connection for SQLite, MySQL, Postgres, or Convex.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-5">
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-4">
             {engineButtons.map((button) => (
               <Button
                 key={button.engine}
@@ -332,6 +470,160 @@ export function DatabaseConnectionDialog({
                 placeholder="./data/app.sqlite"
               />
             </label>
+          ) : formState.engine === "convex" ? (
+            <div className="space-y-4">
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Gateway base URL</span>
+                <Input
+                  value={formState.gatewayBaseUrl}
+                  onChange={(event) =>
+                    setFormState((current) =>
+                      current.engine === "convex"
+                        ? {
+                            ...current,
+                            gatewayBaseUrl: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="https://example.convex.site"
+                />
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Schema file path</span>
+                <Input
+                  value={formState.schemaFilePath}
+                  onChange={(event) =>
+                    setFormState((current) =>
+                      current.engine === "convex"
+                        ? {
+                            ...current,
+                            schemaFilePath: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="convex/schema.ts"
+                />
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Shared secret</span>
+                <Input
+                  type="password"
+                  value={formState.sharedSecret}
+                  onChange={(event) =>
+                    setFormState((current) =>
+                      current.engine === "convex"
+                        ? {
+                            ...current,
+                            sharedSecret: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder={
+                    connection?.engine === "convex"
+                      ? "Leave blank to keep the current shared secret"
+                      : "Required to authenticate T3 Code with Convex"
+                  }
+                />
+              </label>
+              <div className="grid gap-1.5">
+                <span className="text-xs font-medium text-foreground">Push target</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    variant={formState.syncTarget === "dev" ? "default" : "outline"}
+                    size="sm"
+                    className="justify-start"
+                    onClick={() =>
+                      setFormState((current) =>
+                        current.engine === "convex"
+                          ? {
+                              ...current,
+                              syncTarget: "dev",
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    Dev
+                  </Button>
+                  <Button
+                    variant={formState.syncTarget === "prod" ? "default" : "outline"}
+                    size="sm"
+                    className="justify-start"
+                    onClick={() =>
+                      setFormState((current) =>
+                        current.engine === "convex"
+                          ? {
+                              ...current,
+                              syncTarget: "prod",
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    Prod
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="font-medium text-foreground">Project inspection</p>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => void runScaffold()}
+                    disabled={isBusy || !convexInspectionQuery.data?.canScaffold}
+                  >
+                    {scaffoldMutation.isPending ? (
+                      <>
+                        <Spinner className="size-3.5" />
+                        Creating and pushing...
+                      </>
+                    ) : (
+                      "Create helper functions and push"
+                    )}
+                  </Button>
+                </div>
+                {convexInspectionQuery.isPending ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Spinner className="size-3.5" />
+                    Inspecting project files...
+                  </div>
+                ) : convexInspectionQuery.isError ? (
+                  <p className="text-destructive">{convexInspectionQuery.error.message}</p>
+                ) : convexInspectionQuery.data ? (
+                  <div className="space-y-2">
+                    {convexInspectionQuery.data.detectedFromEnvFile &&
+                    convexInspectionQuery.data.detectedFromEnvVar ? (
+                      <p className="text-muted-foreground">
+                        Detected from {convexInspectionQuery.data.detectedFromEnvFile} via{" "}
+                        {convexInspectionQuery.data.detectedFromEnvVar}.
+                      </p>
+                    ) : null}
+                    <div className="space-y-1 text-muted-foreground">
+                      {convexInspectionQuery.data.notes.map((note) => (
+                        <p key={note}>{note}</p>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">Convex project inspection is unavailable.</p>
+                )}
+              </div>
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Convex v1 limitations</p>
+                <p className="mt-1">
+                  T3 Code requires project-scaffolded helper functions and a shared secret stored in
+                  the Convex deployment as <code>T3CODE_CONVEX_SHARED_SECRET</code>.
+                </p>
+                <p className="mt-1">
+                  Create helper functions also pushes to the selected Convex target. SQL execution
+                  is unavailable for Convex connections in v1.
+                </p>
+              </div>
+            </div>
           ) : (
             <>
               <div className="grid gap-2 sm:grid-cols-2">

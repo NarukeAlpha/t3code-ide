@@ -4,6 +4,8 @@ import type {
   DatabaseError,
   DatabaseExecuteQueryInput,
   DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectInput,
+  DatabaseInspectConvexProjectResult,
   DatabaseListConnectionsInput,
   DatabaseListConnectionsResult,
   DatabaseListSchemasInput,
@@ -11,6 +13,8 @@ import type {
   DatabaseListTablesInput,
   DatabaseListTablesResult,
   DatabasePreviewTableInput,
+  DatabaseScaffoldConvexHelpersInput,
+  DatabaseScaffoldConvexHelpersResult,
   DatabasePreviewTableResult,
   DatabaseTestConnectionInput,
   DatabaseTestConnectionResult,
@@ -49,6 +53,12 @@ export interface DatabaseManagerShape {
   readonly testConnection: (
     input: DatabaseTestConnectionInput,
   ) => Effect.Effect<DatabaseTestConnectionResult, DatabaseError>;
+  readonly inspectConvexProject: (
+    input: DatabaseInspectConvexProjectInput,
+  ) => Effect.Effect<DatabaseInspectConvexProjectResult, DatabaseError>;
+  readonly scaffoldConvexHelpers: (
+    input: DatabaseScaffoldConvexHelpersInput,
+  ) => Effect.Effect<DatabaseScaffoldConvexHelpersResult, DatabaseError>;
   readonly listSchemas: (
     input: DatabaseListSchemasInput,
   ) => Effect.Effect<DatabaseListSchemasResult, DatabaseError>;

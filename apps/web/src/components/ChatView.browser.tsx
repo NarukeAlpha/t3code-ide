@@ -206,6 +206,12 @@ function createMockEnvironmentApi(input: {
       listConnections: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["database"]["listConnections"],
+      inspectConvexProject: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["inspectConvexProject"],
+      scaffoldConvexHelpers: (() => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["database"]["scaffoldConvexHelpers"],
       upsertConnection: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["database"]["upsertConnection"],

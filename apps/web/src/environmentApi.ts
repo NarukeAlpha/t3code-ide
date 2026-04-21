@@ -25,6 +25,8 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
     },
     database: {
       listConnections: rpcClient.database.listConnections,
+      inspectConvexProject: rpcClient.database.inspectConvexProject,
+      scaffoldConvexHelpers: rpcClient.database.scaffoldConvexHelpers,
       upsertConnection: rpcClient.database.upsertConnection,
       deleteConnection: rpcClient.database.deleteConnection,
       testConnection: rpcClient.database.testConnection,

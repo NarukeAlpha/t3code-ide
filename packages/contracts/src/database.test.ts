@@ -5,7 +5,9 @@ import {
   DatabaseConnectionDraft,
   DatabaseExecuteQueryInput,
   DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectResult,
   DatabasePreviewTableResult,
+  DatabaseScaffoldConvexHelpersResult,
   SavedDatabaseConnection,
 } from "./database.ts";
 
@@ -43,6 +45,21 @@ describe("SavedDatabaseConnection", () => {
         database: "app",
         user: "postgres",
         ssl: true,
+        createdAt: "2026-04-18T00:00:00.000Z",
+        updatedAt: "2026-04-18T00:00:00.000Z",
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts normalized convex connections without secrets", () => {
+    expect(
+      decodes(SavedDatabaseConnection, {
+        id: "connection-convex",
+        engine: "convex",
+        label: "Convex app",
+        gatewayBaseUrl: "https://gentle-hawk-123.convex.site",
+        schemaFilePath: "convex/schema.ts",
+        syncTarget: "dev",
         createdAt: "2026-04-18T00:00:00.000Z",
         updatedAt: "2026-04-18T00:00:00.000Z",
       }),
@@ -91,6 +108,20 @@ describe("DatabaseConnectionDraft", () => {
         port: 3306,
       }),
     ).toBe(false);
+  });
+
+  it("accepts convex drafts", () => {
+    expect(
+      decodes(DatabaseConnectionDraft, {
+        projectId: "project-1",
+        engine: "convex",
+        label: "Convex app",
+        gatewayBaseUrl: "https://gentle-hawk-123.convex.site",
+        schemaFilePath: "convex/schema.ts",
+        syncTarget: "prod",
+        sharedSecret: "secret-value",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -149,6 +180,33 @@ describe("DatabasePreviewTableResult", () => {
           { name: "name", databaseType: "TEXT" },
         ],
         rows: [{ id: 1, name: "Ada" }],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("Convex project helpers", () => {
+  it("accepts convex inspection results", () => {
+    expect(
+      decodes(DatabaseInspectConvexProjectResult, {
+        schemaFilePath: "convex/schema.ts",
+        gatewayBaseUrl: "https://gentle-hawk-123.convex.site",
+        detectedFromEnvFile: ".env.local",
+        detectedFromEnvVar: "NEXT_PUBLIC_CONVEX_URL",
+        notes: ["Found convex/schema.ts", "Derived gateway URL from NEXT_PUBLIC_CONVEX_URL."],
+        canScaffold: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts convex scaffold results", () => {
+    expect(
+      decodes(DatabaseScaffoldConvexHelpersResult, {
+        writtenPaths: ["convex/t3code.ts", "convex/http.ts"],
+        alreadyPresentPaths: [],
+        manualFollowUp: ["Set T3CODE_CONVEX_SHARED_SECRET in the Convex deployment."],
+        syncTarget: "dev",
+        syncCommand: "npx convex dev --once",
       }),
     ).toBe(true);
   });

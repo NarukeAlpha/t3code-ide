@@ -203,6 +203,7 @@ export function DatabasePanel(props: {
   const connections = connectionsQuery.data?.connections ?? EMPTY_DATABASE_CONNECTIONS;
   const selectedConnection =
     connections.find((connection) => connection.id === selectedConnectionId) ?? null;
+  const isConvexConnection = selectedConnection?.engine === "convex";
 
   useEffect(() => {
     if (connectionsQuery.isPending || connectionsQuery.isFetching) {
@@ -536,38 +537,48 @@ export function DatabasePanel(props: {
       </div>
 
       <div className="border-t border-border px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">Query</p>
-          {executeQueryMutation.isPending ? (
-            <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-              <Spinner className="size-3.5" />
-              Running...
+        {isConvexConnection ? (
+          <div className="rounded-lg border border-border/60 bg-muted/18 px-3 py-2 text-xs text-muted-foreground">
+            Convex v1 supports schema browsing and table preview only.
+          </div>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+                Query
+              </p>
+              {executeQueryMutation.isPending ? (
+                <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  <Spinner className="size-3.5" />
+                  Running...
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="flex items-end gap-2">
-          <textarea
-            value={queryText}
-            rows={visibleQueryRows}
-            onChange={(event) => setQueryText(event.target.value)}
-            onKeyDown={onQueryKeyDown}
-            placeholder="SELECT * FROM users"
-            className="min-h-[2.5rem] flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs/5 outline-none transition-shadow placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
-            style={{
-              maxHeight: `${4 * 1.6}rem`,
-            }}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void runQuery()}
-            disabled={!selectedConnection || executeQueryMutation.isPending}
-          >
-            <PlayIcon className="size-3.5" />
-            Run
-          </Button>
-        </div>
-        {queryError ? <p className="mt-2 text-destructive text-xs">{queryError}</p> : null}
+            <div className="flex items-end gap-2">
+              <textarea
+                value={queryText}
+                rows={visibleQueryRows}
+                onChange={(event) => setQueryText(event.target.value)}
+                onKeyDown={onQueryKeyDown}
+                placeholder="SELECT * FROM users"
+                className="min-h-[2.5rem] flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs/5 outline-none transition-shadow placeholder:text-muted-foreground/72 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24"
+                style={{
+                  maxHeight: `${4 * 1.6}rem`,
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void runQuery()}
+                disabled={!selectedConnection || executeQueryMutation.isPending}
+              >
+                <PlayIcon className="size-3.5" />
+                Run
+              </Button>
+            </div>
+            {queryError ? <p className="mt-2 text-destructive text-xs">{queryError}</p> : null}
+          </>
+        )}
       </div>
 
       <DatabaseConnectionDialog

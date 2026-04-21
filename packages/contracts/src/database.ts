@@ -15,8 +15,9 @@ const DATABASE_DATABASE_NAME_MAX_LENGTH = 256;
 const DATABASE_USER_MAX_LENGTH = 256;
 const DATABASE_DSN_MAX_LENGTH = 4_096;
 const DATABASE_SQL_MAX_LENGTH = 100_000;
+const DATABASE_CONVEX_URL_MAX_LENGTH = 2_048;
 
-export const DatabaseEngine = Schema.Literals(["sqlite", "mysql", "postgres"]);
+export const DatabaseEngine = Schema.Literals(["sqlite", "mysql", "postgres", "convex"]);
 export type DatabaseEngine = typeof DatabaseEngine.Type;
 
 export const DatabaseConnectionId = TrimmedNonEmptyString.pipe(
@@ -60,6 +61,24 @@ export type DatabaseDsn = typeof DatabaseDsn.Type;
 
 export const DatabasePassword = Schema.String.check(Schema.isMaxLength(DATABASE_DSN_MAX_LENGTH));
 export type DatabasePassword = typeof DatabasePassword.Type;
+
+export const DatabaseConvexGatewayBaseUrl = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(DATABASE_CONVEX_URL_MAX_LENGTH),
+);
+export type DatabaseConvexGatewayBaseUrl = typeof DatabaseConvexGatewayBaseUrl.Type;
+
+export const DatabaseConvexSchemaFilePath = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(DATABASE_PATH_MAX_LENGTH),
+);
+export type DatabaseConvexSchemaFilePath = typeof DatabaseConvexSchemaFilePath.Type;
+
+export const DatabaseConvexSharedSecret = Schema.String.check(
+  Schema.isMaxLength(DATABASE_DSN_MAX_LENGTH),
+);
+export type DatabaseConvexSharedSecret = typeof DatabaseConvexSharedSecret.Type;
+
+export const DatabaseConvexSyncTarget = Schema.Literals(["dev", "prod"]);
+export type DatabaseConvexSyncTarget = typeof DatabaseConvexSyncTarget.Type;
 
 export const DatabasePort = PositiveInt.check(Schema.isLessThanOrEqualTo(65_535));
 export type DatabasePort = typeof DatabasePort.Type;
@@ -119,10 +138,23 @@ export const SavedDatabasePostgresConnection = Schema.Struct({
 });
 export type SavedDatabasePostgresConnection = typeof SavedDatabasePostgresConnection.Type;
 
+export const SavedDatabaseConvexConnection = Schema.Struct({
+  id: DatabaseConnectionId,
+  engine: Schema.Literal("convex"),
+  label: DatabaseConnectionLabel,
+  gatewayBaseUrl: DatabaseConvexGatewayBaseUrl,
+  schemaFilePath: DatabaseConvexSchemaFilePath,
+  syncTarget: DatabaseConvexSyncTarget,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type SavedDatabaseConvexConnection = typeof SavedDatabaseConvexConnection.Type;
+
 export const SavedDatabaseConnection = Schema.Union([
   SavedDatabaseSqliteConnection,
   SavedDatabaseMysqlConnection,
   SavedDatabasePostgresConnection,
+  SavedDatabaseConvexConnection,
 ]);
 export type SavedDatabaseConnection = typeof SavedDatabaseConnection.Type;
 
@@ -184,12 +216,23 @@ export const DatabasePostgresConnectionDsnDraft = Schema.Struct({
 });
 export type DatabasePostgresConnectionDsnDraft = typeof DatabasePostgresConnectionDsnDraft.Type;
 
+export const DatabaseConvexConnectionDraft = Schema.Struct({
+  ...DatabaseProjectScopedDraftBase,
+  engine: Schema.Literal("convex"),
+  gatewayBaseUrl: DatabaseConvexGatewayBaseUrl,
+  schemaFilePath: DatabaseConvexSchemaFilePath,
+  syncTarget: DatabaseConvexSyncTarget,
+  sharedSecret: Schema.optional(DatabaseConvexSharedSecret),
+});
+export type DatabaseConvexConnectionDraft = typeof DatabaseConvexConnectionDraft.Type;
+
 export const DatabaseConnectionDraft = Schema.Union([
   DatabaseSqliteConnectionDraft,
   DatabaseMysqlConnectionManualDraft,
   DatabaseMysqlConnectionDsnDraft,
   DatabasePostgresConnectionManualDraft,
   DatabasePostgresConnectionDsnDraft,
+  DatabaseConvexConnectionDraft,
 ]);
 export type DatabaseConnectionDraft = typeof DatabaseConnectionDraft.Type;
 
@@ -229,6 +272,36 @@ export const DatabaseTestConnectionResult = Schema.Struct({
   ok: Schema.Literal(true),
 });
 export type DatabaseTestConnectionResult = typeof DatabaseTestConnectionResult.Type;
+
+export const DatabaseInspectConvexProjectInput = Schema.Struct({
+  projectId: ProjectId,
+});
+export type DatabaseInspectConvexProjectInput = typeof DatabaseInspectConvexProjectInput.Type;
+
+export const DatabaseInspectConvexProjectResult = Schema.Struct({
+  schemaFilePath: Schema.NullOr(DatabaseConvexSchemaFilePath),
+  gatewayBaseUrl: Schema.NullOr(DatabaseConvexGatewayBaseUrl),
+  detectedFromEnvFile: Schema.NullOr(TrimmedNonEmptyString),
+  detectedFromEnvVar: Schema.NullOr(TrimmedNonEmptyString),
+  notes: Schema.Array(TrimmedNonEmptyString),
+  canScaffold: Schema.Boolean,
+});
+export type DatabaseInspectConvexProjectResult = typeof DatabaseInspectConvexProjectResult.Type;
+
+export const DatabaseScaffoldConvexHelpersInput = Schema.Struct({
+  projectId: ProjectId,
+  syncTarget: DatabaseConvexSyncTarget,
+});
+export type DatabaseScaffoldConvexHelpersInput = typeof DatabaseScaffoldConvexHelpersInput.Type;
+
+export const DatabaseScaffoldConvexHelpersResult = Schema.Struct({
+  writtenPaths: Schema.Array(TrimmedNonEmptyString),
+  alreadyPresentPaths: Schema.Array(TrimmedNonEmptyString),
+  manualFollowUp: Schema.Array(TrimmedNonEmptyString),
+  syncTarget: DatabaseConvexSyncTarget,
+  syncCommand: TrimmedNonEmptyString,
+});
+export type DatabaseScaffoldConvexHelpersResult = typeof DatabaseScaffoldConvexHelpersResult.Type;
 
 const DatabaseConnectionTargetFields = {
   projectId: ProjectId,

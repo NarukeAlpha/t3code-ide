@@ -24,6 +24,8 @@ import type {
   DatabaseDeleteConnectionResult,
   DatabaseExecuteQueryInput,
   DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectInput,
+  DatabaseInspectConvexProjectResult,
   DatabaseListConnectionsInput,
   DatabaseListConnectionsResult,
   DatabaseListSchemasInput,
@@ -32,6 +34,8 @@ import type {
   DatabaseListTablesResult,
   DatabasePreviewTableInput,
   DatabasePreviewTableResult,
+  DatabaseScaffoldConvexHelpersInput,
+  DatabaseScaffoldConvexHelpersResult,
   DatabaseTestConnectionInput,
   DatabaseTestConnectionResult,
   DatabaseUpsertConnectionInput,
@@ -270,6 +274,12 @@ export interface EnvironmentApi {
     listConnections: (
       input: DatabaseListConnectionsInput,
     ) => Promise<DatabaseListConnectionsResult>;
+    inspectConvexProject: (
+      input: DatabaseInspectConvexProjectInput,
+    ) => Promise<DatabaseInspectConvexProjectResult>;
+    scaffoldConvexHelpers: (
+      input: DatabaseScaffoldConvexHelpersInput,
+    ) => Promise<DatabaseScaffoldConvexHelpersResult>;
     upsertConnection: (
       input: DatabaseUpsertConnectionInput,
     ) => Promise<DatabaseUpsertConnectionResult>;

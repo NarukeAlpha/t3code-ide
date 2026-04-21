@@ -73,6 +73,8 @@ export interface WsRpcClient {
   };
   readonly database: {
     readonly listConnections: RpcUnaryMethod<typeof WS_METHODS.databaseListConnections>;
+    readonly inspectConvexProject: RpcUnaryMethod<typeof WS_METHODS.databaseInspectConvexProject>;
+    readonly scaffoldConvexHelpers: RpcUnaryMethod<typeof WS_METHODS.databaseScaffoldConvexHelpers>;
     readonly upsertConnection: RpcUnaryMethod<typeof WS_METHODS.databaseUpsertConnection>;
     readonly deleteConnection: RpcUnaryMethod<typeof WS_METHODS.databaseDeleteConnection>;
     readonly testConnection: RpcUnaryMethod<typeof WS_METHODS.databaseTestConnection>;
@@ -164,6 +166,10 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
     database: {
       listConnections: (input) =>
         transport.request((client) => client[WS_METHODS.databaseListConnections](input)),
+      inspectConvexProject: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseInspectConvexProject](input)),
+      scaffoldConvexHelpers: (input) =>
+        transport.request((client) => client[WS_METHODS.databaseScaffoldConvexHelpers](input)),
       upsertConnection: (input) =>
         transport.request((client) => client[WS_METHODS.databaseUpsertConnection](input)),
       deleteConnection: (input) =>

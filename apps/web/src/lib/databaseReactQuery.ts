@@ -4,9 +4,11 @@ import {
   type DatabaseExecuteQueryInput,
   type DatabaseListConnectionsResult,
   type DatabaseListConnectionsInput,
+  type DatabaseInspectConvexProjectInput,
   type DatabaseListSchemasInput,
   type DatabaseListTablesInput,
   type DatabasePreviewTableInput,
+  type DatabaseScaffoldConvexHelpersInput,
   type EnvironmentId,
   type ProjectId,
 } from "@t3tools/contracts";
@@ -20,6 +22,8 @@ export const databaseQueryKeys = {
     ["database", environmentId ?? null, projectId ?? null] as const,
   connections: (environmentId: EnvironmentId | null, projectId: ProjectId | null) =>
     [...databaseQueryKeys.project(environmentId, projectId), "connections"] as const,
+  convexInspect: (environmentId: EnvironmentId | null, projectId: ProjectId | null) =>
+    [...databaseQueryKeys.project(environmentId, projectId), "convex-inspect"] as const,
   schemas: (
     environmentId: EnvironmentId | null,
     projectId: ProjectId | null,
@@ -114,6 +118,30 @@ export function databaseListSchemasQueryOptions(input: {
       input.projectId !== null &&
       input.connectionId !== null,
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+  });
+}
+
+export function databaseInspectConvexProjectQueryOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly projectId: ProjectId | null;
+  readonly enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: databaseQueryKeys.convexInspect(input.environmentId, input.projectId),
+    queryFn: async () => {
+      if (!input.environmentId || !input.projectId) {
+        throw new Error("Convex project inspection is unavailable.");
+      }
+      const api = ensureEnvironmentApi(input.environmentId);
+      const payload: DatabaseInspectConvexProjectInput = {
+        projectId: input.projectId,
+      };
+      return api.database.inspectConvexProject(payload);
+    },
+    enabled: (input.enabled ?? true) && input.environmentId !== null && input.projectId !== null,
+    staleTime: 15_000,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
   });
@@ -258,6 +286,39 @@ export function databaseUpsertConnectionMutationOptions(input: {
         environmentId: input.environmentId,
         projectId: input.projectId,
       });
+    },
+  });
+}
+
+export function databaseScaffoldConvexHelpersMutationOptions(input: {
+  readonly environmentId: EnvironmentId | null;
+  readonly projectId: ProjectId | null;
+  readonly queryClient: QueryClient;
+}) {
+  return mutationOptions({
+    mutationKey: [
+      "database",
+      "mutation",
+      "scaffold-convex-helpers",
+      input.environmentId ?? null,
+      input.projectId ?? null,
+    ] as const,
+    mutationFn: async (payload: DatabaseScaffoldConvexHelpersInput) => {
+      if (!input.environmentId) {
+        throw new Error("Convex scaffolding is unavailable.");
+      }
+      return ensureEnvironmentApi(input.environmentId).database.scaffoldConvexHelpers(payload);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        invalidateProjectDatabaseQueries(input.queryClient, {
+          environmentId: input.environmentId,
+          projectId: input.projectId,
+        }),
+        input.queryClient.invalidateQueries({
+          queryKey: databaseQueryKeys.convexInspect(input.environmentId, input.projectId),
+        }),
+      ]);
     },
   });
 }

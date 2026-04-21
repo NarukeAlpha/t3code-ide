@@ -71,6 +71,7 @@ import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import { DatabaseManagerLive } from "./database/Layers/DatabaseManager.ts";
 import { ProjectDatabaseConnectionRepositoryLive } from "./database/Layers/ProjectDatabaseConnectionRepository.ts";
 import { ProjectDatabaseConnectionSecretsLive } from "./database/Layers/ProjectDatabaseConnectionSecrets.ts";
+import { ProjectDatabaseConnectionSharedSecretsLive } from "./database/Layers/ProjectDatabaseConnectionSharedSecrets.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -240,9 +241,13 @@ const ProjectDatabaseConnectionSecretsLayerLive = ProjectDatabaseConnectionSecre
   Layer.provide(ServerSecretStoreLive),
 );
 
+const ProjectDatabaseConnectionSharedSecretsLayerLive =
+  ProjectDatabaseConnectionSharedSecretsLive.pipe(Layer.provide(ServerSecretStoreLive));
+
 const DatabaseLayerLive = DatabaseManagerLive.pipe(
   Layer.provideMerge(ProjectDatabaseConnectionRepositoryLayerLive),
   Layer.provideMerge(ProjectDatabaseConnectionSecretsLayerLive),
+  Layer.provideMerge(ProjectDatabaseConnectionSharedSecretsLayerLive),
   Layer.provideMerge(DatabaseProjectionSnapshotQueryLayerLive),
 );
 

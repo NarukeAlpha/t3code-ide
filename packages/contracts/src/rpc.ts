@@ -10,6 +10,8 @@ import {
   DatabaseError,
   DatabaseExecuteQueryInput,
   DatabaseExecuteQueryResult,
+  DatabaseInspectConvexProjectInput,
+  DatabaseInspectConvexProjectResult,
   DatabaseListConnectionsInput,
   DatabaseListConnectionsResult,
   DatabaseListSchemasInput,
@@ -18,6 +20,8 @@ import {
   DatabaseListTablesResult,
   DatabasePreviewTableInput,
   DatabasePreviewTableResult,
+  DatabaseScaffoldConvexHelpersInput,
+  DatabaseScaffoldConvexHelpersResult,
   DatabaseTestConnectionInput,
   DatabaseTestConnectionResult,
   DatabaseUpsertConnectionInput,
@@ -112,6 +116,8 @@ export const WS_METHODS = {
 
   // Database methods
   databaseListConnections: "database.listConnections",
+  databaseInspectConvexProject: "database.inspectConvexProject",
+  databaseScaffoldConvexHelpers: "database.scaffoldConvexHelpers",
   databaseUpsertConnection: "database.upsertConnection",
   databaseDeleteConnection: "database.deleteConnection",
   databaseTestConnection: "database.testConnection",
@@ -213,6 +219,21 @@ export const WsDatabaseListConnectionsRpc = Rpc.make(WS_METHODS.databaseListConn
   success: DatabaseListConnectionsResult,
   error: DatabaseError,
 });
+
+export const WsDatabaseInspectConvexProjectRpc = Rpc.make(WS_METHODS.databaseInspectConvexProject, {
+  payload: DatabaseInspectConvexProjectInput,
+  success: DatabaseInspectConvexProjectResult,
+  error: DatabaseError,
+});
+
+export const WsDatabaseScaffoldConvexHelpersRpc = Rpc.make(
+  WS_METHODS.databaseScaffoldConvexHelpers,
+  {
+    payload: DatabaseScaffoldConvexHelpersInput,
+    success: DatabaseScaffoldConvexHelpersResult,
+    error: DatabaseError,
+  },
+);
 
 export const WsDatabaseUpsertConnectionRpc = Rpc.make(WS_METHODS.databaseUpsertConnection, {
   payload: DatabaseUpsertConnectionInput,
@@ -443,6 +464,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsDatabaseListConnectionsRpc,
+  WsDatabaseInspectConvexProjectRpc,
+  WsDatabaseScaffoldConvexHelpersRpc,
   WsDatabaseUpsertConnectionRpc,
   WsDatabaseDeleteConnectionRpc,
   WsDatabaseTestConnectionRpc,
