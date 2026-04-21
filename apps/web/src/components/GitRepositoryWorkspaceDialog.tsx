@@ -452,13 +452,17 @@ function GitGraphRowSvg({
         );
         break;
       case "/":
+        // Extend diagonal a full cell on each side so it visually meets
+        // the vertical/node in the adjacent column/row (git's ASCII `/`
+        // logically connects the bottom-left neighbor's midpoint to the
+        // top-right neighbor's midpoint).
         elements.push(
           <line
             key={key}
-            x1={cx + GRAPH_CELL_WIDTH_PX / 2}
-            y1={0}
-            x2={cx - GRAPH_CELL_WIDTH_PX / 2}
-            y2={height}
+            x1={cx + GRAPH_CELL_WIDTH_PX}
+            y1={-midY}
+            x2={cx - GRAPH_CELL_WIDTH_PX}
+            y2={height + midY}
             stroke={color}
             strokeWidth={stroke}
             strokeLinecap="round"
@@ -469,8 +473,24 @@ function GitGraphRowSvg({
         elements.push(
           <line
             key={key}
-            x1={cx - GRAPH_CELL_WIDTH_PX / 2}
-            y1={0}
+            x1={cx - GRAPH_CELL_WIDTH_PX}
+            y1={-midY}
+            x2={cx + GRAPH_CELL_WIDTH_PX}
+            y2={height + midY}
+            stroke={color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+          />,
+        );
+        break;
+      case "_":
+        // `_` in git graph sits at the bottom edge and extends horizontally
+        // from the left neighbor's node to this column's node.
+        elements.push(
+          <line
+            key={key}
+            x1={cx - GRAPH_CELL_WIDTH_PX}
+            y1={height}
             x2={cx + GRAPH_CELL_WIDTH_PX / 2}
             y2={height}
             stroke={color}
@@ -479,7 +499,6 @@ function GitGraphRowSvg({
           />,
         );
         break;
-      case "_":
       case "-":
         elements.push(
           <line
@@ -548,7 +567,8 @@ function GitGraphRowSvg({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       aria-hidden="true"
-      style={{ flexShrink: 0, display: "block" }}
+      overflow="visible"
+      style={{ flexShrink: 0, display: "block", overflow: "visible" }}
     >
       {elements}
     </svg>
