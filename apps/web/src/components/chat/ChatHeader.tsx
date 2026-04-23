@@ -1,4 +1,5 @@
 import {
+  type DetectedProjectScript,
   type EnvironmentId,
   type EditorId,
   type ProjectScript,
@@ -23,6 +24,7 @@ interface ChatHeaderProps {
   draftId?: DraftId;
   activeThreadTitle: string;
   activeProjectName: string | undefined;
+  activeProjectCwd: string | undefined;
   isGitRepo: boolean;
   openInCwd: string | null;
   activeProjectScripts: ProjectScript[] | undefined;
@@ -36,6 +38,7 @@ interface ChatHeaderProps {
   gitCwd: string | null;
   diffOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
+  onRunDetectedProjectScript: (script: DetectedProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
@@ -49,6 +52,7 @@ export const ChatHeader = memo(function ChatHeader({
   draftId,
   activeThreadTitle,
   activeProjectName,
+  activeProjectCwd,
   isGitRepo,
   openInCwd,
   activeProjectScripts,
@@ -62,6 +66,7 @@ export const ChatHeader = memo(function ChatHeader({
   gitCwd,
   diffOpen,
   onRunProjectScript,
+  onRunDetectedProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
@@ -90,12 +95,15 @@ export const ChatHeader = memo(function ChatHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3">
-        {activeProjectScripts && (
+        {activeProjectScripts && activeProjectCwd && (
           <ProjectScriptsControl
+            environmentId={activeThreadEnvironmentId}
+            projectCwd={activeProjectCwd}
             scripts={activeProjectScripts}
             keybindings={keybindings}
             preferredScriptId={preferredScriptId}
             onRunScript={onRunProjectScript}
+            onRunDetectedScript={onRunDetectedProjectScript}
             onAddScript={onAddProjectScript}
             onUpdateScript={onUpdateProjectScript}
             onDeleteScript={onDeleteProjectScript}

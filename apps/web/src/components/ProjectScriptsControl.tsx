@@ -1,8 +1,11 @@
 import type {
+  DetectedProjectScript,
+  EnvironmentId,
   ProjectScript,
   ProjectScriptIcon,
   ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
 import {
   BugIcon,
   ChevronDownIcon,
@@ -16,17 +19,18 @@ import {
 } from "lucide-react";
 import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
 
+import { shortcutLabelForCommand } from "~/keybindings";
+import { projectDetectedScriptsQueryOptions } from "~/lib/projectReactQuery";
 import {
   keybindingValueForCommand,
   decodeProjectScriptKeybindingRule,
 } from "~/lib/projectScriptKeybindings";
+import { cn, isMacPlatform } from "~/lib/utils";
 import {
   commandForProjectScript,
   nextProjectScriptId,
   primaryProjectScript,
 } from "~/projectScripts";
-import { shortcutLabelForCommand } from "~/keybindings";
-import { isMacPlatform } from "~/lib/utils";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -36,6 +40,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "./ui/alert-dialog";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -49,7 +54,7 @@ import {
 import { Group, GroupSeparator } from "./ui/group";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
@@ -87,10 +92,13 @@ export interface NewProjectScriptInput {
 }
 
 interface ProjectScriptsControlProps {
+  environmentId: EnvironmentId;
+  projectCwd: string;
   scripts: ProjectScript[];
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   onRunScript: (script: ProjectScript) => void;
+  onRunDetectedScript: (script: DetectedProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
   onDeleteScript: (scriptId: string) => Promise<void> | void;
@@ -147,18 +155,39 @@ function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | n
   return parts.join("+");
 }
 
+function buildDetectedScriptDraft(script: DetectedProjectScript): NewProjectScriptInput {
+  return {
+    name:
+      script.source === "package_json"
+        ? script.displayName
+        : `${script.badgeLabel} ${script.displayName}`,
+    command: script.command,
+    icon: "play",
+    runOnWorktreeCreate: false,
+    keybinding: null,
+  };
+}
+
 export default function ProjectScriptsControl({
+  environmentId,
+  projectCwd,
   scripts,
   keybindings,
   preferredScriptId = null,
   onRunScript,
+  onRunDetectedScript,
   onAddScript,
   onUpdateScript,
   onDeleteScript,
 }: ProjectScriptsControlProps) {
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [actionDialogOpen, setActionDialogOpen] = useState(false);
+  const [packageDialogOpen, setPackageDialogOpen] = useState(false);
+  const [fastPromotionTransition, setFastPromotionTransition] = useState(false);
+  const [pendingPromotedDraft, setPendingPromotedDraft] = useState<NewProjectScriptInput | null>(
+    null,
+  );
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [icon, setIcon] = useState<ProjectScriptIcon>("play");
@@ -168,6 +197,15 @@ export default function ProjectScriptsControl({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
+  const detectedScriptsQuery = useQuery(
+    projectDetectedScriptsQueryOptions({
+      environmentId,
+      cwd: projectCwd,
+    }),
+  );
+  const detectedScripts = detectedScriptsQuery.data?.scripts ?? [];
+  const detectedWarnings = detectedScriptsQuery.data?.warnings ?? [];
+
   const primaryScript = useMemo(() => {
     if (preferredScriptId) {
       const preferred = scripts.find((script) => script.id === preferredScriptId);
@@ -176,8 +214,61 @@ export default function ProjectScriptsControl({
     return primaryProjectScript(scripts);
   }, [preferredScriptId, scripts]);
   const isEditing = editingScriptId !== null;
+  const hasDetectedContent =
+    detectedScripts.length > 0 || detectedWarnings.length > 0 || detectedScriptsQuery.isError;
   const dropdownItemClassName =
     "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-highlighted:hover:bg-accent data-highlighted:hover:text-accent-foreground data-highlighted:focus-visible:bg-accent data-highlighted:focus-visible:text-accent-foreground";
+  const fastTransitionDialogProps = fastPromotionTransition
+    ? ({
+        className: "duration-120",
+        backdropClassName: "duration-120",
+      } as const)
+    : {};
+
+  const resetActionForm = useCallback(() => {
+    setEditingScriptId(null);
+    setName("");
+    setCommand("");
+    setIcon("play");
+    setIconPickerOpen(false);
+    setRunOnWorktreeCreate(false);
+    setKeybinding("");
+    setValidationError(null);
+  }, []);
+
+  const openAddDialog = useCallback((draft?: NewProjectScriptInput) => {
+    setEditingScriptId(null);
+    setName(draft?.name ?? "");
+    setCommand(draft?.command ?? "");
+    setIcon(draft?.icon ?? "play");
+    setIconPickerOpen(false);
+    setRunOnWorktreeCreate(draft?.runOnWorktreeCreate ?? false);
+    setKeybinding(draft?.keybinding ?? "");
+    setValidationError(null);
+    setActionDialogOpen(true);
+  }, []);
+
+  const openPackageScriptsDialog = useCallback(() => {
+    setPendingPromotedDraft(null);
+    setPackageDialogOpen(true);
+  }, []);
+
+  const openEditDialog = useCallback(
+    (script: ProjectScript) => {
+      setEditingScriptId(script.id);
+      setName(script.name);
+      setCommand(script.command);
+      setIcon(script.icon);
+      setIconPickerOpen(false);
+      setRunOnWorktreeCreate(script.runOnWorktreeCreate);
+      setKeybinding(
+        keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "",
+      );
+      setValidationError(null);
+      setActionDialogOpen(true);
+    },
+    [keybindings],
+  );
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Tab") return;
@@ -228,41 +319,17 @@ export default function ProjectScriptsControl({
       } else {
         await onAddScript(payload);
       }
-      setDialogOpen(false);
+      setActionDialogOpen(false);
       setIconPickerOpen(false);
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : "Failed to save action.");
     }
   };
 
-  const openAddDialog = () => {
-    setEditingScriptId(null);
-    setName("");
-    setCommand("");
-    setIcon("play");
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(false);
-    setKeybinding("");
-    setValidationError(null);
-    setDialogOpen(true);
-  };
-
-  const openEditDialog = (script: ProjectScript) => {
-    setEditingScriptId(script.id);
-    setName(script.name);
-    setCommand(script.command);
-    setIcon(script.icon);
-    setIconPickerOpen(false);
-    setRunOnWorktreeCreate(script.runOnWorktreeCreate);
-    setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
-    setValidationError(null);
-    setDialogOpen(true);
-  };
-
   const confirmDeleteScript = useCallback(() => {
     if (!editingScriptId) return;
     setDeleteConfirmOpen(false);
-    setDialogOpen(false);
+    setActionDialogOpen(false);
     void onDeleteScript(editingScriptId);
   }, [editingScriptId, onDeleteScript]);
 
@@ -314,7 +381,7 @@ export default function ProjectScriptsControl({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        className="absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-visible:opacity-100 group-focus-visible:pointer-events-auto"
+                        className="pointer-events-none absolute right-0 top-1/2 size-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-visible:pointer-events-auto group-focus-visible:opacity-100"
                         aria-label={`Edit ${script.name}`}
                         onPointerDown={(event) => {
                           event.preventDefault();
@@ -332,15 +399,43 @@ export default function ProjectScriptsControl({
                   </MenuItem>
                 );
               })}
-              <MenuItem className={dropdownItemClassName} onClick={openAddDialog}>
+              {hasDetectedContent && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem className={dropdownItemClassName} onClick={openPackageScriptsDialog}>
+                    <PlayIcon className="size-4" />
+                    Package Scripts...
+                  </MenuItem>
+                </>
+              )}
+              <MenuItem className={dropdownItemClassName} onClick={() => openAddDialog()}>
                 <PlusIcon className="size-4" />
                 Add action
               </MenuItem>
             </MenuPopup>
           </Menu>
         </Group>
+      ) : hasDetectedContent ? (
+        <Menu highlightItemOnHover={false}>
+          <MenuTrigger render={<Button size="xs" variant="outline" title="Actions" />}>
+            <PlayIcon className="size-3.5" />
+            <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
+              Actions
+            </span>
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem className={dropdownItemClassName} onClick={openPackageScriptsDialog}>
+              <PlayIcon className="size-4" />
+              Package Scripts...
+            </MenuItem>
+            <MenuItem className={dropdownItemClassName} onClick={() => openAddDialog()}>
+              <PlusIcon className="size-4" />
+              Add action
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
       ) : (
-        <Button size="xs" variant="outline" onClick={openAddDialog} title="Add action">
+        <Button size="xs" variant="outline" onClick={() => openAddDialog()} title="Add action">
           <PlusIcon className="size-3.5" />
           <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
             Add action
@@ -350,24 +445,23 @@ export default function ProjectScriptsControl({
 
       <Dialog
         onOpenChange={(open) => {
-          setDialogOpen(open);
+          setActionDialogOpen(open);
           if (!open) {
             setIconPickerOpen(false);
           }
         }}
         onOpenChangeComplete={(open) => {
-          if (open) return;
-          setEditingScriptId(null);
-          setName("");
-          setCommand("");
-          setIcon("play");
-          setRunOnWorktreeCreate(false);
-          setKeybinding("");
-          setValidationError(null);
+          if (open) {
+            if (fastPromotionTransition) {
+              setFastPromotionTransition(false);
+            }
+            return;
+          }
+          resetActionForm();
         }}
-        open={dialogOpen}
+        open={actionDialogOpen}
       >
-        <DialogPopup>
+        <DialogPopup {...fastTransitionDialogProps}>
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
@@ -400,11 +494,12 @@ export default function ProjectScriptsControl({
                             <button
                               key={entry.id}
                               type="button"
-                              className={`relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs ${
+                              className={cn(
+                                "relative flex flex-col items-center gap-2 rounded-md border px-2 py-2 text-xs",
                                 isSelected
                                   ? "border-primary/70 bg-primary/10"
-                                  : "border-border/70 hover:bg-accent/60"
-                              }`}
+                                  : "border-border/70 hover:bg-accent/60",
+                              )}
                               onClick={() => {
                                 setIcon(entry.id);
                                 setIconPickerOpen(false);
@@ -470,17 +565,113 @@ export default function ProjectScriptsControl({
                 Delete
               </Button>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setDialogOpen(false);
-              }}
-            >
+            <Button type="button" variant="outline" onClick={() => setActionDialogOpen(false)}>
               Cancel
             </Button>
             <Button form={addScriptFormId} type="submit">
               {isEditing ? "Save changes" : "Save action"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      <Dialog
+        open={packageDialogOpen}
+        onOpenChange={(open) => setPackageDialogOpen(open)}
+        onOpenChangeComplete={(open) => {
+          if (open || !pendingPromotedDraft) return;
+          const draft = pendingPromotedDraft;
+          setPendingPromotedDraft(null);
+          queueMicrotask(() => openAddDialog(draft));
+        }}
+      >
+        <DialogPopup {...fastTransitionDialogProps}>
+          <DialogHeader>
+            <DialogTitle>Package Scripts</DialogTitle>
+            <DialogDescription>
+              Detected project actions are read-only defaults from package manifests and root build
+              files.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel scrollFade={false}>
+            {detectedScriptsQuery.isPending ? (
+              <p className="text-sm text-muted-foreground">Loading project actions...</p>
+            ) : detectedScriptsQuery.isError ? (
+              <p className="text-sm text-destructive">{detectedScriptsQuery.error.message}</p>
+            ) : (
+              <div className="space-y-4">
+                {detectedWarnings.length > 0 && (
+                  <div className="space-y-2">
+                    {detectedWarnings.map((warning) => (
+                      <div
+                        key={warning}
+                        className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+                      >
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {detectedScripts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No detected project actions were found for this project.
+                  </p>
+                ) : (
+                  <div className="max-h-[30rem] space-y-3 overflow-y-auto pr-1">
+                    {detectedScripts.map((script) => (
+                      <div
+                        key={script.id}
+                        className="min-h-24 rounded-xl border border-border/70 bg-muted/24 px-4 py-3"
+                      >
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="font-medium text-sm">{script.displayName}</p>
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 text-[10px] uppercase tracking-wide"
+                              >
+                                {script.badgeLabel}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{script.detail}</p>
+                            <div className="rounded-md border border-border/70 bg-background/70 px-3 py-2 font-mono text-xs break-all">
+                              {script.command}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onRunDetectedScript(script)}
+                            >
+                              Run
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => {
+                                setFastPromotionTransition(true);
+                                setPendingPromotedDraft(buildDetectedScriptDraft(script));
+                                setPackageDialogOpen(false);
+                              }}
+                            >
+                              Save as action
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPackageDialogOpen(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogPopup>
