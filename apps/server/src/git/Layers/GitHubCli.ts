@@ -86,7 +86,11 @@ function normalizeRepositoryCloneUrls(
 function decodeGitHubJson<S extends Schema.Top>(
   raw: string,
   schema: S,
-  operation: "listOpenPullRequests" | "getPullRequest" | "getRepositoryCloneUrls",
+  operation:
+    | "listPullRequests"
+    | "getPullRequest"
+    | "getRepositoryCloneUrls"
+    | "getRepositoryNameWithOwner",
   invalidDetail: string,
 ): Effect.Effect<S["Type"], GitHubCliError, S["DecodingServices"]> {
   return Schema.decodeEffect(Schema.fromJsonString(schema))(raw).pipe(
@@ -107,27 +111,31 @@ const makeGitHubCli = Effect.sync(() => {
       try: () =>
         runProcess("gh", input.args, {
           cwd: input.cwd,
+          stdin: input.stdin,
+          shell: false,
           timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         }),
       catch: (error) => normalizeGitHubCliError("execute", error),
     });
 
-  const service = {
+  return {
     execute,
-    listOpenPullRequests: (input) =>
+    listPullRequests: (input) =>
       execute({
         cwd: input.cwd,
         args: [
           "pr",
           "list",
+          "--repo",
+          input.repository,
           "--head",
           input.headSelector,
           "--state",
-          "open",
+          input.state ?? "open",
           "--limit",
           String(input.limit ?? 1),
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -139,16 +147,14 @@ const makeGitHubCli = Effect.sync(() => {
                   if (!Result.isSuccess(decoded)) {
                     return Effect.fail(
                       new GitHubCliError({
-                        operation: "listOpenPullRequests",
+                        operation: "listPullRequests",
                         detail: `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
                         cause: decoded.failure,
                       }),
                     );
                   }
 
-                  return Effect.succeed(
-                    decoded.success.map(({ updatedAt: _updatedAt, ...summary }) => summary),
-                  );
+                  return Effect.succeed(decoded.success);
                 }),
               ),
         ),
@@ -159,6 +165,7 @@ const makeGitHubCli = Effect.sync(() => {
         args: [
           "pr",
           "view",
+          ...(input.repository ? ["--repo", input.repository] : []),
           input.reference,
           "--json",
           "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
@@ -178,12 +185,28 @@ const makeGitHubCli = Effect.sync(() => {
                 );
               }
 
-              return Effect.succeed(
-                (({ updatedAt: _updatedAt, ...summary }) => summary)(decoded.success),
-              );
+              return Effect.succeed(decoded.success);
             }),
           ),
         ),
+      ),
+    getRepositoryNameWithOwner: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["repo", "view", "--json", "nameWithOwner"],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          decodeGitHubJson(
+            raw,
+            Schema.Struct({
+              nameWithOwner: Schema.NullOr(TrimmedNonEmptyString),
+            }),
+            "getRepositoryNameWithOwner",
+            "GitHub CLI returned invalid repository JSON.",
+          ),
+        ),
+        Effect.map((decoded) => decoded.nameWithOwner),
       ),
     getRepositoryCloneUrls: (input) =>
       execute({
@@ -207,6 +230,7 @@ const makeGitHubCli = Effect.sync(() => {
         args: [
           "pr",
           "create",
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--base",
           input.baseBranch,
           "--head",
@@ -233,8 +257,6 @@ const makeGitHubCli = Effect.sync(() => {
         args: ["pr", "checkout", input.reference, ...(input.force ? ["--force"] : [])],
       }).pipe(Effect.asVoid),
   } satisfies GitHubCliShape;
-
-  return service;
 });
 
 export const GitHubCliLive = Layer.effect(GitHubCli, makeGitHubCli);
