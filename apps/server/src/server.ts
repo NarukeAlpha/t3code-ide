@@ -234,7 +234,7 @@ const DatabaseLayerLive = DatabaseManagerLive.pipe(
   Layer.provideMerge(DatabaseProjectionSnapshotQueryLayerLive),
 );
 
-const RuntimeDependenciesLive = ReactorLayerLive.pipe(
+const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
   Layer.provideMerge(GitLayerLive),
@@ -269,7 +269,9 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
   Layer.provideMerge(DatabaseLayerLive),
+);
 
+const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
