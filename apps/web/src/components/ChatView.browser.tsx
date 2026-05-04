@@ -9,6 +9,8 @@ import {
   type MessageId,
   type OrchestrationReadModel,
   type ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
   type ThreadId,
@@ -18,6 +20,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
 } from "@t3tools/contracts";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { createModelCapabilities, createModelSelection } from "@t3tools/shared/model";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -166,7 +169,8 @@ function createBaseServerConfig(): ServerConfig {
     issues: [],
     providers: [
       {
-        provider: "codex",
+        driver: ProviderDriverKind.make("codex"),
+        instanceId: ProviderInstanceId.make("codex"),
         enabled: true,
         installed: true,
         version: "0.116.0",
@@ -202,6 +206,8 @@ function createMockEnvironmentApi(input: {
     filesystem: {
       browse: input.browse,
     },
+    sourceControl: {} as EnvironmentApi["sourceControl"],
+    vcs: {} as EnvironmentApi["vcs"],
     git: {} as EnvironmentApi["git"],
     orchestration: {
       dispatchCommand: input.dispatchCommand,
@@ -322,7 +328,7 @@ function createSnapshotForTargetUser(options: {
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5",
         },
         scripts: [],
@@ -337,7 +343,7 @@ function createSnapshotForTargetUser(options: {
         projectId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -402,7 +408,7 @@ function addThreadToSnapshot(
         projectId: PROJECT_ID,
         title: "New thread",
         modelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -739,7 +745,7 @@ function createSnapshotWithSecondaryProject(options?: {
           id: "thread-secondary-project" as ThreadId,
           projectId: SECOND_PROJECT_ID,
           title: "Release checklist",
-          modelSelection: { provider: "codex", model: "gpt-5" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",
           runtimeMode: "full-access",
           branch: "release/docs-portal",
@@ -771,7 +777,7 @@ function createSnapshotWithSecondaryProject(options?: {
           id: ARCHIVED_SECONDARY_THREAD_ID,
           projectId: SECOND_PROJECT_ID,
           title: "Archived Docs Notes",
-          modelSelection: { provider: "codex", model: "gpt-5" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
           interactionMode: "default",
           runtimeMode: "full-access",
           branch: "release/docs-archive",
@@ -806,7 +812,7 @@ function createSnapshotWithSecondaryProject(options?: {
         id: SECOND_PROJECT_ID,
         title: "Docs Portal",
         workspaceRoot: "/repo/clients/docs-portal",
-        defaultModelSelection: { provider: "codex", model: "gpt-5" },
+        defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
         scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -883,7 +889,7 @@ function createSnapshotWithPendingUserInput(): OrchestrationReadModel {
 }
 
 function createSnapshotWithPlanFollowUpPrompt(options?: {
-  modelSelection?: { provider: "codex"; model: string };
+  modelSelection?: { instanceId: ProviderInstanceId; model: string };
   planMarkdown?: string;
 }): OrchestrationReadModel {
   const snapshot = createSnapshotForTargetUser({
@@ -891,7 +897,7 @@ function createSnapshotWithPlanFollowUpPrompt(options?: {
     targetText: "plan follow-up thread",
   });
   const modelSelection = options?.modelSelection ?? {
-    provider: "codex" as const,
+    instanceId: ProviderInstanceId.make("codex"),
     model: "gpt-5",
   };
   const planMarkdown =
@@ -947,13 +953,13 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
-  if (tag === WS_METHODS.gitListBranches) {
+  if (tag === WS_METHODS.vcsListRefs) {
     return {
       isRepo: true,
-      hasOriginRemote: true,
+      hasPrimaryRemote: true,
       nextCursor: null,
       totalCount: 1,
-      branches: [
+      refs: [
         {
           name: "main",
           current: true,
@@ -1378,6 +1384,18 @@ function dispatchChatNewShortcut(): void {
       shiftKey: true,
       metaKey: useMetaForMod,
       ctrlKey: !useMetaForMod,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+function releaseModShortcut(key?: string): void {
+  window.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      key: key ?? (isMacPlatform(navigator.platform) ? "Meta" : "Control"),
+      metaKey: false,
+      ctrlKey: false,
       bubbles: true,
       cancelable: true,
     }),
@@ -2271,16 +2289,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       branchButton.click();
 
       const branchInput = await waitForElement(
-        () => document.querySelector<HTMLInputElement>('input[placeholder="Search branches..."]'),
-        "Unable to find branch search input.",
+        () => document.querySelector<HTMLInputElement>('input[placeholder="Search refs..."]'),
+        "Unable to find ref search input.",
       );
       branchInput.focus();
-      await page.getByPlaceholder("Search branches...").fill("1359");
+      await page.getByPlaceholder("Search refs...").fill("1359");
 
       const checkoutItem = await waitForElement(
         () =>
           Array.from(document.querySelectorAll("span")).find(
-            (element) => element.textContent?.trim() === "Checkout Pull Request",
+            (element) => element.textContent?.trim() === "Checkout pull request",
           ) as HTMLSpanElement | null,
         "Unable to find checkout pull request option.",
       );
@@ -2409,7 +2427,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
+      expect(wsRequests.some((request) => request._tag === WS_METHODS.vcsCreateWorktree)).toBe(
         false,
       );
       expect(
@@ -2420,6 +2438,126 @@ describe("ChatView timeline estimator parity (full app)", () => {
             request.data === "bun install\r",
         ),
       ).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps custom provider instance ids when bootstrapping a local draft thread", async () => {
+    setDraftThreadWithoutWorktree();
+    const openRouterInstanceId = ProviderInstanceId.make("claude_openrouter");
+    const openRouterSelection = createModelSelection(openRouterInstanceId, "openai/gpt-5.5");
+    useComposerDraftStore.getState().setModelSelection(THREAD_REF, openRouterSelection);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          providers: [
+            ...nextFixture.serverConfig.providers,
+            {
+              driver: ProviderDriverKind.make("claudeAgent"),
+              instanceId: ProviderInstanceId.make("claudeAgent"),
+              enabled: true,
+              installed: true,
+              version: "2.1.117",
+              status: "ready",
+              auth: { status: "authenticated" },
+              checkedAt: NOW_ISO,
+              models: [
+                {
+                  slug: "claude-opus-4-7",
+                  name: "Claude Opus 4.7",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({ optionDescriptors: [] }),
+                },
+              ],
+              slashCommands: [],
+              skills: [],
+            },
+            {
+              driver: ProviderDriverKind.make("claudeAgent"),
+              instanceId: openRouterInstanceId,
+              displayName: "Claude OpenRouter",
+              enabled: true,
+              installed: true,
+              version: "2.1.117",
+              status: "ready",
+              auth: { status: "authenticated" },
+              checkedAt: NOW_ISO,
+              models: [
+                {
+                  slug: "claude-opus-4-7",
+                  name: "Claude Opus 4.7",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({ optionDescriptors: [] }),
+                },
+              ],
+              slashCommands: [],
+              skills: [],
+            },
+          ],
+          settings: {
+            ...nextFixture.serverConfig.settings,
+            providerInstances: {
+              ...nextFixture.serverConfig.settings.providerInstances,
+              [openRouterInstanceId]: {
+                driver: ProviderDriverKind.make("claudeAgent"),
+                displayName: "Claude OpenRouter",
+                config: { customModels: ["openai/gpt-5.5"] },
+              },
+            },
+          },
+        };
+      },
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_REF, "Hello there");
+      await waitForLayout();
+
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                modelSelection?: { instanceId?: string; model?: string };
+                bootstrap?: {
+                  createThread?: {
+                    modelSelection?: { instanceId?: string; model?: string };
+                  };
+                };
+              }
+            | undefined;
+
+          expect(turnStartRequest?.modelSelection).toMatchObject({
+            instanceId: openRouterInstanceId,
+            model: "openai/gpt-5.5",
+          });
+          expect(turnStartRequest?.bootstrap?.createThread?.modelSelection).toMatchObject({
+            instanceId: openRouterInstanceId,
+            model: "openai/gpt-5.5",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -2436,13 +2574,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 1,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2529,13 +2667,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       },
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2625,13 +2763,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: snapshotWithTwoThreads,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -2885,13 +3023,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${activeDraftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: 2,
-            branches: [
+            refs: [
               {
                 name: "main",
                 current: true,
@@ -3010,13 +3148,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot: createDraftOnlySnapshot(),
       initialPath: `/draft/${draftId}`,
       resolveRpc: (body) => {
-        if (body._tag === WS_METHODS.gitListBranches) {
+        if (body._tag === WS_METHODS.vcsListRefs) {
           return {
             isRepo: true,
-            hasOriginRemote: true,
+            hasPrimaryRemote: true,
             nextCursor: null,
             totalCount: branches.length,
-            branches,
+            refs: branches,
           };
         }
         return undefined;
@@ -3034,8 +3172,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       branchButton.click();
 
       await waitForElement(
-        () => document.querySelector<HTMLInputElement>('input[placeholder="Search branches..."]'),
-        "Unable to find branch search input.",
+        () => document.querySelector<HTMLInputElement>('input[placeholder="Search refs..."]'),
+        "Unable to find ref search input.",
       );
 
       const popup = await waitForElement(
@@ -3765,16 +3903,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("snapshots sticky codex settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        codex: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            reasoningEffort: "medium",
-            fastMode: true,
-          },
-        },
+        [ProviderInstanceId.make("codex")]: createModelSelection(
+          ProviderInstanceId.make("codex"),
+          "gpt-5.3-codex",
+          [
+            { id: "reasoningEffort", value: "medium" },
+            { id: "fastMode", value: true },
+          ],
+        ),
       },
-      stickyActiveProvider: "codex",
+      stickyActiveProvider: ProviderInstanceId.make("codex"),
     });
 
     const mounted = await mountChatView({
@@ -3798,14 +3936,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       const newDraftId = draftIdFromPath(newThreadPath);
 
+      // `toMatchObject` matches objects loosely (extras ignored) but compares
+      // arrays strictly, so wrap `options` in `arrayContaining` to keep the
+      // assertion focused on sticky `fastMode` carrying over without asserting
+      // on exactly which other options are preserved.
       expect(composerDraftFor(newDraftId)).toMatchObject({
         modelSelectionByProvider: {
           codex: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5.3-codex",
-            options: {
-              fastMode: true,
-            },
+            options: expect.arrayContaining([{ id: "fastMode", value: true }]),
           },
         },
         activeProvider: "codex",
@@ -3818,16 +3958,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("hydrates the provider alongside a sticky claude model", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        claudeAgent: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
-          options: {
-            effort: "max",
-            fastMode: true,
-          },
-        },
+        [ProviderInstanceId.make("claudeAgent")]: createModelSelection(
+          ProviderInstanceId.make("claudeAgent"),
+          "claude-opus-4-6",
+          [
+            { id: "effort", value: "max" },
+            { id: "fastMode", value: true },
+          ],
+        ),
       },
-      stickyActiveProvider: "claudeAgent",
+      stickyActiveProvider: ProviderInstanceId.make("claudeAgent"),
     });
 
     const mounted = await mountChatView({
@@ -3853,14 +3993,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(composerDraftFor(newDraftId)).toMatchObject({
         modelSelectionByProvider: {
-          claudeAgent: {
-            provider: "claudeAgent",
-            model: "claude-opus-4-6",
-            options: {
-              effort: "max",
-              fastMode: true,
-            },
-          },
+          claudeAgent: createModelSelection(
+            ProviderInstanceId.make("claudeAgent"),
+            "claude-opus-4-6",
+            [
+              { id: "effort", value: "max" },
+              { id: "fastMode", value: true },
+            ],
+          ),
         },
         activeProvider: "claudeAgent",
       });
@@ -3900,16 +4040,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("prefers draft state over sticky composer settings and defaults", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        codex: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
-          options: {
-            reasoningEffort: "medium",
-            fastMode: true,
-          },
-        },
+        [ProviderInstanceId.make("codex")]: createModelSelection(
+          ProviderInstanceId.make("codex"),
+          "gpt-5.3-codex",
+          [
+            { id: "reasoningEffort", value: "medium" },
+            { id: "fastMode", value: true },
+          ],
+        ),
       },
-      stickyActiveProvider: "codex",
+      stickyActiveProvider: ProviderInstanceId.make("codex"),
     });
 
     const mounted = await mountChatView({
@@ -3933,27 +4073,27 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       const draftId = draftIdFromPath(threadPath);
 
+      // See the note on the sibling sticky-codex test: arrays match strictly
+      // under `toMatchObject`, so use `arrayContaining` to keep the assertion
+      // scoped to the sticky trait (`fastMode`) that must carry over.
       expect(composerDraftFor(draftId)).toMatchObject({
         modelSelectionByProvider: {
           codex: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5.3-codex",
-            options: {
-              fastMode: true,
-            },
+            options: expect.arrayContaining([{ id: "fastMode", value: true }]),
           },
         },
         activeProvider: "codex",
       });
 
-      useComposerDraftStore.getState().setModelSelection(draftId, {
-        provider: "codex",
-        model: "gpt-5.4",
-        options: {
-          reasoningEffort: "low",
-          fastMode: true,
-        },
-      });
+      useComposerDraftStore.getState().setModelSelection(
+        draftId,
+        createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+          { id: "reasoningEffort", value: "low" },
+          { id: "fastMode", value: true },
+        ]),
+      );
 
       await newThreadButton.click();
 
@@ -3964,14 +4104,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       expect(composerDraftFor(draftId)).toMatchObject({
         modelSelectionByProvider: {
-          codex: {
-            provider: "codex",
-            model: "gpt-5.4",
-            options: {
-              reasoningEffort: "low",
-              fastMode: true,
-            },
-          },
+          codex: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4", [
+            { id: "reasoningEffort", value: "low" },
+            { id: "fastMode", value: true },
+          ]),
         },
         activeProvider: "codex",
       });
@@ -4005,6 +4141,29 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 type: "not",
                 node: { type: "identifier", name: "terminalFocus" },
               },
+            },
+            {
+              command: "thread.jump.1",
+              shortcut: {
+                key: "1",
+                metaKey: true,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: false,
+              },
+            },
+            {
+              command: "modelPicker.jump.1",
+              shortcut: {
+                key: "1",
+                metaKey: true,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: false,
+              },
+              whenAst: { type: "identifier", name: "modelPickerOpen" },
             },
           ],
         };
@@ -4099,8 +4258,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await waitForServerConfigToApply();
-      await waitForCommandPaletteShortcutLabel();
+      await Promise.all([waitForServerConfigToApply(), waitForCommandPaletteShortcutLabel()]);
       const palette = page.getByTestId("command-palette");
       await openCommandPaletteFromTrigger();
 
@@ -4152,8 +4310,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await waitForServerConfigToApply();
-      await waitForCommandPaletteShortcutLabel();
+      await Promise.all([waitForServerConfigToApply(), waitForCommandPaletteShortcutLabel()]);
       const palette = page.getByTestId("command-palette");
       await openCommandPaletteFromTrigger();
 
@@ -4226,13 +4383,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await waitForServerConfigToApply();
-      await waitForCommandPaletteShortcutLabel();
+      await Promise.all([waitForServerConfigToApply(), waitForCommandPaletteShortcutLabel()]);
       const palette = page.getByTestId("command-palette");
       await openCommandPaletteFromTrigger();
 
       await expect.element(palette).toBeInTheDocument();
       await palette.getByText("Add project", { exact: true }).click();
+      await palette.getByText("Local folder", { exact: true }).click();
 
       const browseInput = await waitForCommandPaletteInput(ADD_PROJECT_SUBMENU_PLACEHOLDER);
       await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/Development/");
@@ -4273,6 +4430,126 @@ describe("ChatView timeline estimator parity (full app)", () => {
         mounted.router,
         (path) => UUID_ROUTE_RE.test(path),
         "Route should have changed to a new draft thread after adding a project with Enter.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows clone destination controls after resolving an add project repository", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-command-palette-add-project-remote" as MessageId,
+        targetText: "command palette add project remote",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "commandPalette.toggle",
+              shortcut: {
+                key: "k",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+          ],
+        };
+      },
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.filesystemBrowse) {
+          return {
+            parentPath: "~/",
+            entries: [{ name: "Development", fullPath: "~/Development" }],
+          };
+        }
+
+        if (body._tag === WS_METHODS.sourceControlLookupRepository) {
+          return {
+            provider: "github",
+            nameWithOwner: "t3-oss/t3-env",
+            url: "https://github.com/t3-oss/t3-env",
+            sshUrl: "git@github.com:t3-oss/t3-env.git",
+          };
+        }
+
+        if (body._tag === WS_METHODS.sourceControlCloneRepository) {
+          return {
+            cwd: body.destinationPath,
+            remoteUrl: body.remoteUrl,
+            repository: null,
+          };
+        }
+
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+
+        return undefined;
+      },
+    });
+
+    try {
+      await Promise.all([waitForServerConfigToApply(), waitForCommandPaletteShortcutLabel()]);
+      const palette = page.getByTestId("command-palette");
+      await openCommandPaletteFromTrigger();
+
+      await expect.element(palette).toBeInTheDocument();
+      await palette.getByText("Add project", { exact: true }).click();
+      await palette.getByText("GitHub repository", { exact: true }).click();
+
+      const repositoryInput = await waitForCommandPaletteInput(
+        "Enter GitHub repository (owner/repo)",
+      );
+      await page.getByPlaceholder("Enter GitHub repository (owner/repo)").fill("t3-oss/t3-env");
+      await dispatchInputKey(repositoryInput, { key: "Enter" });
+
+      await vi.waitFor(
+        () => {
+          const clonePathInput = document.querySelector<HTMLInputElement>(
+            'input[placeholder="Enter path (e.g. ~/projects/my-app)"]',
+          );
+          expect(clonePathInput?.value).toBe("~/");
+          expect(document.body.textContent).toContain("Repository");
+          expect(document.body.textContent).toContain("t3-oss/t3-env");
+          expect(document.body.textContent).toContain("https://github.com/t3-oss/t3-env");
+          expect(document.body.textContent).toContain("Select where to clone");
+          expect(document.body.textContent).toContain("Development");
+          expect(document.body.textContent).toContain("Clone");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await page
+        .getByPlaceholder("Enter path (e.g. ~/projects/my-app)")
+        .fill("~/Development/t3env");
+      const clonePathInput = await waitForCommandPaletteInput(
+        "Enter path (e.g. ~/projects/my-app)",
+      );
+      await dispatchInputKey(clonePathInput, { key: "Enter" });
+
+      await vi.waitFor(
+        () => {
+          const cloneRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.sourceControlCloneRepository,
+          ) as { destinationPath?: string; remoteUrl?: string } | undefined;
+          expect(cloneRequest).toMatchObject({
+            remoteUrl: "git@github.com:t3-oss/t3-env.git",
+            destinationPath: "~/Development/t3env",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
       );
     } finally {
       await mounted.cleanup();
@@ -4631,6 +4908,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await expect.element(palette).toBeInTheDocument();
       await palette.getByText("Add project", { exact: true }).click();
+      await palette.getByText("Local folder", { exact: true }).click();
       await expect.element(palette.getByText("Environments", { exact: true })).toBeInTheDocument();
       await expect
         .element(palette.getByText("This device", { exact: true }).first())
@@ -4846,6 +5124,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await expect.element(palette).toBeInTheDocument();
       await palette.getByText("Add project", { exact: true }).click();
+      await palette.getByText("Local folder", { exact: true }).click();
 
       const browseInput = await waitForCommandPaletteInput(ADD_PROJECT_SUBMENU_PLACEHOLDER);
       await page.getByPlaceholder(ADD_PROJECT_SUBMENU_PLACEHOLDER).fill("~/Development/");
@@ -5417,7 +5696,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex-spark" },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.3-codex-spark",
+        },
         planMarkdown:
           "# Imaginary Long-Range Plan: T3 Code Adaptive Orchestration and Safe-Delay Execution Initiative",
       }),
@@ -5447,7 +5729,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,
       snapshot: createSnapshotWithPlanFollowUpPrompt({
-        modelSelection: { provider: "codex", model: "gpt-5.3-codex-spark" },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.3-codex-spark",
+        },
         planMarkdown:
           "# Imaginary Long-Range Plan: T3 Code Adaptive Orchestration and Safe-Delay Execution Initiative",
       }),
@@ -5516,6 +5801,204 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the model picker when selecting /model", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-model-command-target" as MessageId,
+        targetText: "model command thread",
+      }),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await page.getByTestId("composer-editor").fill("/mod");
+
+      const menuItem = await waitForComposerMenuItem("slash:model");
+      await menuItem.click();
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".model-picker-list")).not.toBeNull();
+        expect(findComposerProviderModelPicker()?.textContent).not.toContain("/model");
+      });
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      await vi.waitFor(() => {
+        const searchInput = document.querySelector<HTMLInputElement>(
+          'input[placeholder="Search models..."]',
+        );
+        expect(searchInput).not.toBeNull();
+        expect(document.activeElement).toBe(searchInput);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("toggles the model picker and shows jump keys immediately from the shortcut", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-model-picker-shortcut-target" as MessageId,
+      targetText: "model picker shortcut thread",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        projects: snapshot.projects.map((project) =>
+          project.id === PROJECT_ID
+            ? Object.assign({}, project, {
+                defaultModelSelection: {
+                  instanceId: ProviderInstanceId.make("codex"),
+                  model: "gpt-5.4",
+                },
+              })
+            : project,
+        ),
+        threads: snapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? Object.assign({}, thread, {
+                modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+              })
+            : thread,
+        ),
+      },
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "modelPicker.toggle",
+              shortcut: {
+                key: "m",
+                metaKey: false,
+                ctrlKey: true,
+                shiftKey: true,
+                altKey: false,
+                modKey: false,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+            {
+              command: "thread.jump.1",
+              shortcut: {
+                key: "1",
+                metaKey: false,
+                ctrlKey: true,
+                shiftKey: false,
+                altKey: false,
+                modKey: false,
+              },
+            },
+            {
+              command: "modelPicker.jump.1",
+              shortcut: {
+                key: "1",
+                metaKey: false,
+                ctrlKey: true,
+                shiftKey: false,
+                altKey: false,
+                modKey: false,
+              },
+              whenAst: { type: "identifier", name: "modelPickerOpen" },
+            },
+          ],
+          providers: [
+            {
+              ...nextFixture.serverConfig.providers[0]!,
+              models: [
+                {
+                  slug: "gpt-5.1-codex-max",
+                  name: "GPT-5.1 Codex Max",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({
+                    optionDescriptors: [
+                      { id: "fastMode", label: "Fast Mode", type: "boolean" as const },
+                    ],
+                  }),
+                },
+                {
+                  slug: "gpt-5.3-codex",
+                  name: "GPT-5.3 Codex",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({
+                    optionDescriptors: [
+                      { id: "fastMode", label: "Fast Mode", type: "boolean" as const },
+                    ],
+                  }),
+                },
+                {
+                  slug: "gpt-5.4",
+                  name: "GPT-5.4",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({
+                    optionDescriptors: [
+                      { id: "fastMode", label: "Fast Mode", type: "boolean" as const },
+                    ],
+                  }),
+                },
+              ],
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      await waitForComposerEditor();
+
+      const initialPath = mounted.router.state.location.pathname;
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".model-picker-list")).not.toBeNull();
+      });
+
+      const jumpLabel = isMacPlatform(navigator.platform) ? "⌃1" : "Ctrl+1";
+      await vi.waitFor(() => {
+        expect(
+          Array.from(
+            document.querySelectorAll<HTMLElement>('.model-picker-list [data-slot="kbd"]'),
+          ).some((element) => element.textContent?.trim() === jumpLabel),
+        ).toBe(true);
+      });
+      expect(mounted.router.state.location.pathname).toBe(initialPath);
+
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(document.querySelector(".model-picker-list")).toBeNull();
+      });
+    } finally {
+      releaseModShortcut("Control");
       await mounted.cleanup();
     }
   });
