@@ -1,4 +1,3 @@
-import { FitAddon } from "@xterm/addon-fit";
 import { Plus, SquareSplitHorizontal, TerminalSquare, Trash2, XIcon } from "lucide-react";
 import {
   type ResolvedKeybindingsConfig,
@@ -7,7 +6,6 @@ import {
   type TerminalSessionSnapshot,
   type ThreadId,
 } from "@t3tools/contracts";
-import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -47,6 +45,11 @@ import {
 } from "../types";
 import { readEnvironmentApi } from "~/environmentApi";
 import { readLocalApi } from "~/localApi";
+import {
+  GhosttyFitAddon as FitAddon,
+  GhosttyTerminal as Terminal,
+  type GhosttyTerminalTheme as ITheme,
+} from "../libghostty/GhosttyTerminal";
 import { selectTerminalEventEntries, useTerminalStateStore } from "../terminalStateStore";
 
 const MIN_DRAWER_HEIGHT = 180;

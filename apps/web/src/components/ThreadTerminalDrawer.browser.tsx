@@ -33,14 +33,11 @@ const {
   })),
 }));
 
-vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: class MockFitAddon {
+vi.mock("../libghostty/GhosttyTerminal", () => ({
+  GhosttyFitAddon: class MockFitAddon {
     fit = fitAddonFitSpy;
   },
-}));
-
-vi.mock("@xterm/xterm", () => ({
-  Terminal: class MockTerminal {
+  GhosttyTerminal: class MockTerminal {
     cols = 80;
     rows = 24;
     options: { theme?: unknown } = {};

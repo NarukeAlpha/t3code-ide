@@ -11,7 +11,10 @@ class MockHTMLElement {
   };
 
   closest(selector: string): MockHTMLElement | null {
-    return selector === ".thread-terminal-drawer .xterm" && this.isConnected ? this : null;
+    return selector === '.thread-terminal-drawer [data-terminal-engine="ghostty-vt"]' &&
+      this.isConnected
+      ? this
+      : null;
   }
 }
 
@@ -33,9 +36,9 @@ afterEach(() => {
 });
 
 describe("isTerminalFocused", () => {
-  it("returns false for detached xterm helper textareas", () => {
+  it("returns false for detached Ghostty terminal inputs", () => {
     const detached = new MockHTMLElement();
-    detached.className = "xterm-helper-textarea";
+    detached.className = "ghostty-terminal-input";
 
     globalThis.HTMLElement = MockHTMLElement as unknown as typeof HTMLElement;
     globalThis.document = { activeElement: detached } as Document;
@@ -43,9 +46,9 @@ describe("isTerminalFocused", () => {
     expect(isTerminalFocused()).toBe(false);
   });
 
-  it("returns true for connected xterm helper textareas", () => {
+  it("returns true for connected Ghostty terminal inputs", () => {
     const attached = new MockHTMLElement();
-    attached.className = "xterm-helper-textarea";
+    attached.className = "ghostty-terminal-input";
     attached.isConnected = true;
 
     globalThis.HTMLElement = MockHTMLElement as unknown as typeof HTMLElement;
