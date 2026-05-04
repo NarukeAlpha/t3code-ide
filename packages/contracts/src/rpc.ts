@@ -26,6 +26,8 @@ import {
   GitPreparePullRequestThreadResult,
   VcsPullInput,
   GitPullRequestRefInput,
+  GitRecentGraphInput,
+  GitRecentGraphResult,
   VcsPullResult,
   VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
@@ -34,6 +36,20 @@ import {
   VcsStatusResult,
   VcsStatusStreamEvent,
 } from "./git.ts";
+import {
+  GitHubPullRequestCommentInput,
+  GitHubPullRequestDetail,
+  GitHubPullRequestDetailInput,
+  GitHubPullRequestInboxInput,
+  GitHubPullRequestInboxSnapshot,
+  GitHubPullRequestReviewInput,
+  GitHubWorkflowOverview,
+  GitHubWorkflowOverviewInput,
+  GitHubWorkspaceError,
+  GitHubWorkspaceInput,
+  GitHubWorkspaceSnapshot,
+  GitHubWorkspaceWriteResult,
+} from "./github.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   ClientOrchestrationCommand,
@@ -117,6 +133,15 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitGetRecentGraph: "git.getRecentGraph",
+
+  // GitHub methods
+  githubGetWorkspace: "github.getWorkspace",
+  githubGetPullRequestInbox: "github.getPullRequestInbox",
+  githubGetPullRequestDetail: "github.getPullRequestDetail",
+  githubGetWorkflowOverview: "github.getWorkflowOverview",
+  githubAddPullRequestComment: "github.addPullRequestComment",
+  githubSubmitPullRequestReview: "github.submitPullRequestReview",
 
   // Terminal methods
   terminalOpen: "terminal.open",
@@ -308,6 +333,51 @@ export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
   error: VcsError,
 });
 
+export const WsGitGetRecentGraphRpc = Rpc.make(WS_METHODS.gitGetRecentGraph, {
+  payload: GitRecentGraphInput,
+  success: GitRecentGraphResult,
+  error: GitCommandError,
+});
+
+export const WsGitHubGetWorkspaceRpc = Rpc.make(WS_METHODS.githubGetWorkspace, {
+  payload: GitHubWorkspaceInput,
+  success: GitHubWorkspaceSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubGetPullRequestInboxRpc = Rpc.make(WS_METHODS.githubGetPullRequestInbox, {
+  payload: GitHubPullRequestInboxInput,
+  success: GitHubPullRequestInboxSnapshot,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubGetPullRequestDetailRpc = Rpc.make(WS_METHODS.githubGetPullRequestDetail, {
+  payload: GitHubPullRequestDetailInput,
+  success: GitHubPullRequestDetail,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubGetWorkflowOverviewRpc = Rpc.make(WS_METHODS.githubGetWorkflowOverview, {
+  payload: GitHubWorkflowOverviewInput,
+  success: GitHubWorkflowOverview,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubAddPullRequestCommentRpc = Rpc.make(WS_METHODS.githubAddPullRequestComment, {
+  payload: GitHubPullRequestCommentInput,
+  success: GitHubWorkspaceWriteResult,
+  error: GitHubWorkspaceError,
+});
+
+export const WsGitHubSubmitPullRequestReviewRpc = Rpc.make(
+  WS_METHODS.githubSubmitPullRequestReview,
+  {
+    payload: GitHubPullRequestReviewInput,
+    success: GitHubWorkspaceWriteResult,
+    error: GitHubWorkspaceError,
+  },
+);
+
 export const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -432,6 +502,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitGetRecentGraphRpc,
+  WsGitHubGetWorkspaceRpc,
+  WsGitHubGetPullRequestInboxRpc,
+  WsGitHubGetPullRequestDetailRpc,
+  WsGitHubGetWorkflowOverviewRpc,
+  WsGitHubAddPullRequestCommentRpc,
+  WsGitHubSubmitPullRequestReviewRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

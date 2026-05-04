@@ -40,8 +40,17 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       init: rpcClient.vcs.init,
     },
     git: {
+      getRecentGraph: rpcClient.git.getRecentGraph,
       resolvePullRequest: rpcClient.git.resolvePullRequest,
       preparePullRequestThread: rpcClient.git.preparePullRequestThread,
+    },
+    github: {
+      getWorkspace: rpcClient.github.getWorkspace,
+      getPullRequestInbox: rpcClient.github.getPullRequestInbox,
+      getPullRequestDetail: rpcClient.github.getPullRequestDetail,
+      getWorkflowOverview: rpcClient.github.getWorkflowOverview,
+      addPullRequestComment: rpcClient.github.addPullRequestComment,
+      submitPullRequestReview: rpcClient.github.submitPullRequestReview,
     },
     orchestration: {
       dispatchCommand: rpcClient.orchestration.dispatchCommand,

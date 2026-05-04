@@ -105,9 +105,20 @@ export interface WsRpcClient {
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
     ) => Promise<GitRunStackedActionResult>;
+    readonly getRecentGraph: RpcUnaryMethod<typeof WS_METHODS.gitGetRecentGraph>;
     readonly resolvePullRequest: RpcUnaryMethod<typeof WS_METHODS.gitResolvePullRequest>;
     readonly preparePullRequestThread: RpcUnaryMethod<
       typeof WS_METHODS.gitPreparePullRequestThread
+    >;
+  };
+  readonly github: {
+    readonly getWorkspace: RpcUnaryMethod<typeof WS_METHODS.githubGetWorkspace>;
+    readonly getPullRequestInbox: RpcUnaryMethod<typeof WS_METHODS.githubGetPullRequestInbox>;
+    readonly getPullRequestDetail: RpcUnaryMethod<typeof WS_METHODS.githubGetPullRequestDetail>;
+    readonly getWorkflowOverview: RpcUnaryMethod<typeof WS_METHODS.githubGetWorkflowOverview>;
+    readonly addPullRequestComment: RpcUnaryMethod<typeof WS_METHODS.githubAddPullRequestComment>;
+    readonly submitPullRequestReview: RpcUnaryMethod<
+      typeof WS_METHODS.githubSubmitPullRequestReview
     >;
   };
   readonly server: {
@@ -226,10 +237,26 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
 
         throw new Error("Git action stream completed without a final result.");
       },
+      getRecentGraph: (input) =>
+        transport.request((client) => client[WS_METHODS.gitGetRecentGraph](input)),
       resolvePullRequest: (input) =>
         transport.request((client) => client[WS_METHODS.gitResolvePullRequest](input)),
       preparePullRequestThread: (input) =>
         transport.request((client) => client[WS_METHODS.gitPreparePullRequestThread](input)),
+    },
+    github: {
+      getWorkspace: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetWorkspace](input)),
+      getPullRequestInbox: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetPullRequestInbox](input)),
+      getPullRequestDetail: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetPullRequestDetail](input)),
+      getWorkflowOverview: (input) =>
+        transport.request((client) => client[WS_METHODS.githubGetWorkflowOverview](input)),
+      addPullRequestComment: (input) =>
+        transport.request((client) => client[WS_METHODS.githubAddPullRequestComment](input)),
+      submitPullRequestReview: (input) =>
+        transport.request((client) => client[WS_METHODS.githubSubmitPullRequestReview](input)),
     },
     server: {
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),

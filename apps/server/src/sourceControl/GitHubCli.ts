@@ -1,4 +1,5 @@
-import { Context, Effect, Layer, Result, Schema, SchemaIssue } from "effect";
+import { Context, Effect, Layer, Option, Result, Schema, SchemaIssue } from "effect";
+import type { DateTime } from "effect";
 
 import {
   TrimmedNonEmptyString,
@@ -11,6 +12,7 @@ import {
   decodeGitHubPullRequestJson,
   decodeGitHubPullRequestListJson,
   formatGitHubJsonDecodeError,
+  type NormalizedGitHubPullRequestRecord,
 } from "./gitHubPullRequests.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -35,6 +37,7 @@ export interface GitHubPullRequestSummary {
   readonly isCrossRepository?: boolean;
   readonly headRepositoryNameWithOwner?: string | null;
   readonly headRepositoryOwnerLogin?: string | null;
+  readonly updatedAt?: Option.Option<DateTime.Utc>;
 }
 
 export interface GitHubRepositoryCloneUrls {
@@ -47,8 +50,17 @@ export interface GitHubCliShape {
   readonly execute: (input: {
     readonly cwd: string;
     readonly args: ReadonlyArray<string>;
+    readonly stdin?: string;
     readonly timeoutMs?: number;
   }) => Effect.Effect<VcsProcessOutput, GitHubCliError>;
+
+  readonly listPullRequests: (input: {
+    readonly cwd: string;
+    readonly repository?: string;
+    readonly headSelector: string;
+    readonly state?: "open" | "all";
+    readonly limit?: number;
+  }) => Effect.Effect<ReadonlyArray<GitHubPullRequestSummary>, GitHubCliError>;
 
   readonly listOpenPullRequests: (input: {
     readonly cwd: string;
@@ -59,7 +71,12 @@ export interface GitHubCliShape {
   readonly getPullRequest: (input: {
     readonly cwd: string;
     readonly reference: string;
+    readonly repository?: string;
   }) => Effect.Effect<GitHubPullRequestSummary, GitHubCliError>;
+
+  readonly getRepositoryNameWithOwner: (input: {
+    readonly cwd: string;
+  }) => Effect.Effect<string | null, GitHubCliError>;
 
   readonly getRepositoryCloneUrls: (input: {
     readonly cwd: string;
@@ -78,6 +95,7 @@ export interface GitHubCliShape {
     readonly headSelector: string;
     readonly title: string;
     readonly bodyFile: string;
+    readonly repository?: string;
   }) => Effect.Effect<void, GitHubCliError>;
 
   readonly getDefaultBranch: (input: {
@@ -210,7 +228,12 @@ function deriveRepositoryCloneUrlsFromCreateOutput(
 function decodeGitHubJson<S extends Schema.Top>(
   raw: string,
   schema: S,
-  operation: "listOpenPullRequests" | "getPullRequest" | "getRepositoryCloneUrls",
+  operation:
+    | "listPullRequests"
+    | "listOpenPullRequests"
+    | "getPullRequest"
+    | "getRepositoryCloneUrls"
+    | "getRepositoryNameWithOwner",
   invalidDetail: string,
 ): Effect.Effect<S["Type"], GitHubCliError, S["DecodingServices"]> {
   return Schema.decodeEffect(Schema.fromJsonString(schema))(raw).pipe(
@@ -225,6 +248,13 @@ function decodeGitHubJson<S extends Schema.Top>(
   );
 }
 
+function toGitHubPullRequestSummary(
+  record: NormalizedGitHubPullRequestRecord,
+): GitHubPullRequestSummary {
+  const { updatedAt, ...summary } = record;
+  return Option.isSome(updatedAt) ? { ...summary, updatedAt } : summary;
+}
+
 export const make = Effect.fn("makeGitHubCli")(function* () {
   const process = yield* VcsProcess;
 
@@ -234,61 +264,70 @@ export const make = Effect.fn("makeGitHubCli")(function* () {
         operation: "GitHubCli.execute",
         command: "gh",
         args: input.args,
+        ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
         cwd: input.cwd,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       })
       .pipe(Effect.mapError((error) => normalizeGitHubCliError("execute", error)));
 
+  const listPullRequests: GitHubCliShape["listPullRequests"] = (input) =>
+    execute({
+      cwd: input.cwd,
+      args: [
+        "pr",
+        "list",
+        ...(input.repository ? ["--repo", input.repository] : []),
+        "--head",
+        input.headSelector,
+        "--state",
+        input.state ?? "open",
+        "--limit",
+        String(input.limit ?? 1),
+        "--json",
+        "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+      ],
+    }).pipe(
+      Effect.map((result) => result.stdout.trim()),
+      Effect.flatMap((raw) =>
+        raw.length === 0
+          ? Effect.succeed([])
+          : Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
+              Effect.flatMap((decoded) => {
+                if (!Result.isSuccess(decoded)) {
+                  return Effect.fail(
+                    new GitHubCliError({
+                      operation: "listPullRequests",
+                      detail: `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
+                      cause: decoded.failure,
+                    }),
+                  );
+                }
+                return Effect.succeed(decoded.success.map(toGitHubPullRequestSummary));
+              }),
+            ),
+      ),
+    );
+
   return GitHubCli.of({
     execute,
+    listPullRequests,
     listOpenPullRequests: (input) =>
-      execute({
+      listPullRequests({
         cwd: input.cwd,
-        args: [
-          "pr",
-          "list",
-          "--head",
-          input.headSelector,
-          "--state",
-          "open",
-          "--limit",
-          String(input.limit ?? 1),
-          "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
-        ],
-      }).pipe(
-        Effect.map((result) => result.stdout.trim()),
-        Effect.flatMap((raw) =>
-          raw.length === 0
-            ? Effect.succeed([])
-            : Effect.sync(() => decodeGitHubPullRequestListJson(raw)).pipe(
-                Effect.flatMap((decoded) => {
-                  if (!Result.isSuccess(decoded)) {
-                    return Effect.fail(
-                      new GitHubCliError({
-                        operation: "listOpenPullRequests",
-                        detail: `GitHub CLI returned invalid PR list JSON: ${formatGitHubJsonDecodeError(decoded.failure)}`,
-                        cause: decoded.failure,
-                      }),
-                    );
-                  }
-
-                  return Effect.succeed(
-                    decoded.success.map(({ updatedAt: _updatedAt, ...summary }) => summary),
-                  );
-                }),
-              ),
-        ),
-      ),
+        headSelector: input.headSelector,
+        state: "open",
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }).pipe(Effect.map((items) => items.map(({ updatedAt: _updatedAt, ...summary }) => summary))),
     getPullRequest: (input) =>
       execute({
         cwd: input.cwd,
         args: [
           "pr",
           "view",
+          ...(input.repository ? ["--repo", input.repository] : []),
           input.reference,
           "--json",
-          "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
@@ -305,12 +344,28 @@ export const make = Effect.fn("makeGitHubCli")(function* () {
                 );
               }
 
-              return Effect.succeed(
-                (({ updatedAt: _updatedAt, ...summary }) => summary)(decoded.success),
-              );
+              return Effect.succeed(toGitHubPullRequestSummary(decoded.success));
             }),
           ),
         ),
+      ),
+    getRepositoryNameWithOwner: (input) =>
+      execute({
+        cwd: input.cwd,
+        args: ["repo", "view", "--json", "nameWithOwner"],
+      }).pipe(
+        Effect.map((result) => result.stdout.trim()),
+        Effect.flatMap((raw) =>
+          decodeGitHubJson(
+            raw,
+            Schema.Struct({
+              nameWithOwner: Schema.NullOr(TrimmedNonEmptyString),
+            }),
+            "getRepositoryNameWithOwner",
+            "GitHub CLI returned invalid repository JSON.",
+          ),
+        ),
+        Effect.map((decoded) => decoded.nameWithOwner),
       ),
     getRepositoryCloneUrls: (input) =>
       execute({
@@ -343,6 +398,7 @@ export const make = Effect.fn("makeGitHubCli")(function* () {
         args: [
           "pr",
           "create",
+          ...(input.repository ? ["--repo", input.repository] : []),
           "--base",
           input.baseBranch,
           "--head",

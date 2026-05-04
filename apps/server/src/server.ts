@@ -25,6 +25,7 @@ import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReap
 import { OpenCodeRuntimeLive } from "./provider/opencodeRuntime.ts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery.ts";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore.ts";
+import { GitWorkspaceLive } from "./git/Layers/GitWorkspace.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
@@ -174,8 +175,16 @@ const GitManagerLayerLive = GitManager.layer.pipe(
   Layer.provideMerge(TextGeneration.layer),
 );
 
+const GitWorkspaceLayerLive = GitWorkspaceLive.pipe(
+  Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitHubCli.layer),
+  Layer.provideMerge(GitVcsDriver.layer),
+  Layer.provideMerge(RepositoryIdentityResolverLive),
+);
+
 const GitLayerLive = Layer.empty.pipe(
   Layer.provideMerge(GitManagerLayerLive),
+  Layer.provideMerge(GitWorkspaceLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
 );
 

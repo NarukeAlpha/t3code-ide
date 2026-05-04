@@ -142,12 +142,20 @@ interface PullRequestHeadRemoteInfo {
 interface BranchHeadContext {
   localBranch: string;
   headBranch: string;
-  headSelectors: ReadonlyArray<string>;
+  headSelectors: string[];
   preferredHeadSelector: string;
   remoteName: string | null;
   headRepositoryNameWithOwner: string | null;
   headRepositoryOwnerLogin: string | null;
   isCrossRepository: boolean;
+}
+
+function appendUnique(values: string[], next: string | null | undefined): void {
+  const trimmed = next?.trim() ?? "";
+  if (trimmed.length === 0 || values.includes(trimmed)) {
+    return;
+  }
+  values.push(trimmed);
 }
 
 function parseRepositoryNameFromPullRequestUrl(url: string): string | null {
@@ -455,14 +463,6 @@ function parseCustomCommitMessage(raw: string): { subject: string; body: string 
     subject,
     body: rest.join("\n").trim(),
   };
-}
-
-function appendUnique(values: string[], next: string | null | undefined): void {
-  const trimmed = next?.trim() ?? "";
-  if (trimmed.length === 0 || values.includes(trimmed)) {
-    return;
-  }
-  values.push(trimmed);
 }
 
 function toStatusPr(pr: PullRequestInfo): {

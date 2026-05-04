@@ -29,6 +29,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery.ts";
 import { ServerConfig } from "./config.ts";
+import { GitWorkspace } from "./git/Services/GitWorkspace.ts";
 import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
@@ -142,6 +143,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitWorkflow = yield* GitWorkflowService;
       const vcsProvisioning = yield* VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
+      const gitWorkspace = yield* GitWorkspace;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
       const config = yield* ServerConfig;
@@ -195,7 +197,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         Schema.is(OrchestrationDispatchCommandError)(cause)
           ? cause
           : new OrchestrationDispatchCommandError({
-              message: cause instanceof Error ? cause.message : fallbackMessage,
+              message:
+                cause && typeof cause === "object" && "message" in cause
+                  ? String(cause.message)
+                  : fallbackMessage,
               cause,
             });
 
@@ -205,7 +210,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           ? error
           : new OrchestrationDispatchCommandError({
               message:
-                error instanceof Error ? error.message : "Failed to bootstrap thread turn start.",
+                error && typeof error === "object" && "message" in error
+                  ? String(error.message)
+                  : "Failed to bootstrap thread turn start.",
               cause,
             });
       };
@@ -213,41 +220,42 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const enrichProjectEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<OrchestrationEvent, never, never> => {
-        switch (event.type) {
-          case "project.created":
-            return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
-              Effect.map((repositoryIdentity) => ({
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              })),
-            );
-          case "project.meta-updated":
-            return Effect.gen(function* () {
-              const workspaceRoot =
-                event.payload.workspaceRoot ??
-                (yield* orchestrationEngine.getReadModel()).projects.find(
-                  (project) => project.id === event.payload.projectId,
-                )?.workspaceRoot ??
-                null;
-              if (workspaceRoot === null) {
-                return event;
-              }
-
-              const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
-              return {
-                ...event,
-                payload: {
-                  ...event.payload,
-                  repositoryIdentity,
-                },
-              } satisfies OrchestrationEvent;
-            });
-          default:
-            return Effect.succeed(event);
+        if (event.type === "project.created") {
+          return repositoryIdentityResolver.resolve(event.payload.workspaceRoot).pipe(
+            Effect.map((repositoryIdentity) => ({
+              ...event,
+              payload: {
+                ...event.payload,
+                repositoryIdentity,
+              },
+            })),
+          );
         }
+
+        if (event.type === "project.meta-updated") {
+          return Effect.gen(function* () {
+            const workspaceRoot =
+              event.payload.workspaceRoot ??
+              (yield* orchestrationEngine.getReadModel()).projects.find(
+                (project) => project.id === event.payload.projectId,
+              )?.workspaceRoot ??
+              null;
+            if (workspaceRoot === null) {
+              return event;
+            }
+
+            const repositoryIdentity = yield* repositoryIdentityResolver.resolve(workspaceRoot);
+            return {
+              ...event,
+              payload: {
+                ...event.payload,
+                repositoryIdentity,
+              },
+            } satisfies OrchestrationEvent;
+          });
+        }
+
+        return Effect.succeed(event);
       };
 
       const enrichOrchestrationEvents = (events: ReadonlyArray<OrchestrationEvent>) =>
@@ -256,52 +264,52 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const toShellStreamEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never, never> => {
-        switch (event.type) {
-          case "project.created":
-          case "project.meta-updated":
-            return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
-              Effect.map((project) =>
-                Option.map(project, (nextProject) => ({
-                  kind: "project-upserted" as const,
-                  sequence: event.sequence,
-                  project: nextProject,
-                })),
-              ),
-              Effect.catch(() => Effect.succeed(Option.none())),
-            );
-          case "project.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "project-removed" as const,
+        if (event.type === "project.created" || event.type === "project.meta-updated") {
+          return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
+            Effect.map((project) =>
+              Option.map(project, (nextProject) => ({
+                kind: "project-upserted" as const,
                 sequence: event.sequence,
-                projectId: event.payload.projectId,
-              }),
-            );
-          case "thread.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "thread-removed" as const,
-                sequence: event.sequence,
-                threadId: event.payload.threadId,
-              }),
-            );
-          default:
-            if (event.aggregateKind !== "thread") {
-              return Effect.succeed(Option.none());
-            }
-            return projectionSnapshotQuery
-              .getThreadShellById(ThreadId.make(event.aggregateId))
-              .pipe(
-                Effect.map((thread) =>
-                  Option.map(thread, (nextThread) => ({
-                    kind: "thread-upserted" as const,
-                    sequence: event.sequence,
-                    thread: nextThread,
-                  })),
-                ),
-                Effect.catch(() => Effect.succeed(Option.none())),
-              );
+                project: nextProject,
+              })),
+            ),
+            Effect.catch(() => Effect.succeed(Option.none())),
+          );
         }
+
+        if (event.type === "project.deleted") {
+          return Effect.succeed(
+            Option.some({
+              kind: "project-removed" as const,
+              sequence: event.sequence,
+              projectId: event.payload.projectId,
+            }),
+          );
+        }
+
+        if (event.type === "thread.deleted") {
+          return Effect.succeed(
+            Option.some({
+              kind: "thread-removed" as const,
+              sequence: event.sequence,
+              threadId: event.payload.threadId,
+            }),
+          );
+        }
+
+        if (event.aggregateKind !== "thread") {
+          return Effect.succeed(Option.none());
+        }
+        return projectionSnapshotQuery.getThreadShellById(ThreadId.make(event.aggregateId)).pipe(
+          Effect.map((thread) =>
+            Option.map(thread, (nextThread) => ({
+              kind: "thread-upserted" as const,
+              sequence: event.sequence,
+              thread: nextThread,
+            })),
+          ),
+          Effect.catch(() => Effect.succeed(Option.none())),
+        );
       };
 
       const dispatchBootstrapTurnStart = (
@@ -935,6 +943,44 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             gitWorkflow
               .preparePullRequestThread(input)
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.gitGetRecentGraph]: (input) =>
+          observeRpcEffect(WS_METHODS.gitGetRecentGraph, gitWorkspace.getRecentGraph(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubGetWorkspace]: (input) =>
+          observeRpcEffect(WS_METHODS.githubGetWorkspace, gitWorkspace.getGitHubWorkspace(input), {
+            "rpc.aggregate": "git",
+          }),
+        [WS_METHODS.githubGetPullRequestInbox]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetPullRequestInbox,
+            gitWorkspace.getPullRequestInbox(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubGetPullRequestDetail]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetPullRequestDetail,
+            gitWorkspace.getPullRequestDetail(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubGetWorkflowOverview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubGetWorkflowOverview,
+            gitWorkspace.getWorkflowOverview(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubAddPullRequestComment]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubAddPullRequestComment,
+            gitWorkspace.addPullRequestComment(input),
+            { "rpc.aggregate": "git" },
+          ),
+        [WS_METHODS.githubSubmitPullRequestReview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.githubSubmitPullRequestReview,
+            gitWorkspace.submitPullRequestReview(input),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.vcsListRefs]: (input) =>

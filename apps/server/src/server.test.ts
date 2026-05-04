@@ -62,6 +62,7 @@ import {
   CheckpointDiffQuery,
   type CheckpointDiffQueryShape,
 } from "./checkpointing/Services/CheckpointDiffQuery.ts";
+import { GitWorkspace, type GitWorkspaceShape } from "./git/Services/GitWorkspace.ts";
 import { GitManager, type GitManagerShape } from "./git/GitManager.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
@@ -334,6 +335,7 @@ const buildAppUnderTest = (options?: {
     vcsDriverRegistry?: Partial<VcsDriverRegistryShape>;
     gitVcsDriver?: Partial<GitVcsDriver.GitVcsDriverShape>;
     gitManager?: Partial<GitManagerShape>;
+    gitWorkspace?: Partial<GitWorkspaceShape>;
     sourceControlRepositoryService?: Partial<SourceControlRepositoryServiceShape>;
     vcsStatusBroadcaster?: Partial<VcsStatusBroadcasterShape>;
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
@@ -565,6 +567,107 @@ const buildAppUnderTest = (options?: {
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(GitWorkspace)({
+          getRecentGraph: () =>
+            Effect.succeed({
+              rows: [],
+              maxColumns: 0,
+              refs: [],
+              topology: {
+                headOid: null,
+                headBranch: null,
+                defaultBranch: null,
+                worktrees: [],
+              },
+              truncated: false,
+            }),
+          getGitHubWorkspace: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              pullRequests: [],
+              activePullRequest: null,
+              fetchedAt: new Date().toISOString(),
+            }),
+          getPullRequestInbox: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              repository: "owner/repo",
+              labels: [],
+              pullRequests: [],
+              nextCursor: null,
+              appliedFilters: {
+                search: "",
+                state: "open" as const,
+                review: "any" as const,
+                author: "",
+                assignee: "",
+                baseBranch: "",
+                labels: [],
+                draft: "any" as const,
+                sort: "updated" as const,
+              },
+              fetchedAt: new Date().toISOString(),
+            }),
+          getPullRequestDetail: () =>
+            Effect.succeed({
+              pullRequest: {
+                repository: "owner/repo",
+                number: 1,
+                title: "Test PR",
+                url: "https://github.com/owner/repo/pull/1",
+                state: "open" as const,
+                isDraft: false,
+                body: "",
+                author: null,
+                reviewDecision: null,
+                baseBranch: "main",
+                headBranch: "feature",
+                headSha: "abc123",
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                comments: [],
+                reviews: [],
+              },
+              fetchedAt: new Date().toISOString(),
+            }),
+          getWorkflowOverview: () =>
+            Effect.succeed({
+              availability: {
+                kind: "available" as const,
+                message: "GitHub workspace is available.",
+              },
+              target: {
+                kind: "remote_ref" as const,
+                remoteName: "origin",
+                branch: "main",
+              },
+              repository: "owner/repo",
+              targetLabel: "origin/main",
+              resolvedSha: null,
+              isStale: false,
+              unavailableReason: null,
+              checks: [],
+              runs: [],
+              fetchedAt: new Date().toISOString(),
+            }),
+          addPullRequestComment: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          submitPullRequestReview: () =>
+            Effect.succeed({
+              updatedAt: new Date().toISOString(),
+            }),
+          ...options?.layers?.gitWorkspace,
         }),
       ),
       Layer.provide(
@@ -851,7 +954,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const path = yield* Path.Path;
       const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
-      yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
+      yield* fileSystem.writeFileString(indexPath, '<html lang="en">router-static-ok</html>');
 
       yield* buildAppUnderTest({ config: { staticDir } });
 

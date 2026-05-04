@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { DateTime, Effect, FileSystem, Layer, Option, PlatformError, Scope } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { expect } from "vitest";
 import type {
@@ -40,8 +40,11 @@ interface FakeGhScenario {
   prListSequence?: string[];
   prListByHeadSelector?: Record<string, string>;
   prListSequenceByHeadSelector?: Record<string, string[]>;
+  prListByRepositoryHeadSelector?: Record<string, string>;
+  prListSequenceByRepositoryHeadSelector?: Record<string, string[]>;
   createdPrUrl?: string;
   defaultBranch?: string;
+  repositoryNameWithOwner?: string;
   pullRequest?: {
     number: number;
     title: string;
@@ -122,12 +125,18 @@ function normalizeFakePullRequestSummary(raw: unknown): GitHubPullRequestSummary
       ? (record.headRepositoryOwner as Record<string, unknown>)
       : null;
 
+  const normalizedTitle = typeof title === "string" ? title.trim() : "";
+  const normalizedUrl = typeof url === "string" ? url.trim() : "";
+  const normalizedBaseRefName = typeof baseRefName === "string" ? baseRefName.trim() : "";
+  const normalizedHeadRefName = typeof headRefName === "string" ? headRefName.trim() : "";
+
   if (
     typeof number !== "number" ||
-    typeof title !== "string" ||
-    typeof url !== "string" ||
-    typeof baseRefName !== "string" ||
-    typeof headRefName !== "string"
+    number <= 0 ||
+    normalizedTitle.length === 0 ||
+    normalizedUrl.length === 0 ||
+    normalizedBaseRefName.length === 0 ||
+    normalizedHeadRefName.length === 0
   ) {
     return null;
   }
@@ -140,6 +149,10 @@ function normalizeFakePullRequestSummary(raw: unknown): GitHubPullRequestSummary
           ? "closed"
           : "merged"
       : undefined;
+  const updatedAt =
+    typeof record.updatedAt === "string" && record.updatedAt.trim().length > 0
+      ? Option.some(DateTime.makeUnsafe(record.updatedAt.trim()))
+      : Option.none();
   const isCrossRepository =
     typeof record.isCrossRepository === "boolean" ? record.isCrossRepository : undefined;
   const headRepositoryNameWithOwner =
@@ -157,15 +170,26 @@ function normalizeFakePullRequestSummary(raw: unknown): GitHubPullRequestSummary
 
   return {
     number,
-    title,
-    url,
-    baseRefName,
-    headRefName,
+    title: normalizedTitle,
+    url: normalizedUrl,
+    baseRefName: normalizedBaseRefName,
+    headRefName: normalizedHeadRefName,
     ...(state ? { state } : {}),
+    ...(Option.isSome(updatedAt) ? { updatedAt } : {}),
     ...(isCrossRepository !== undefined ? { isCrossRepository } : {}),
     ...(headRepositoryNameWithOwner ? { headRepositoryNameWithOwner } : {}),
     ...(headRepositoryOwnerLogin ? { headRepositoryOwnerLogin } : {}),
   };
+}
+
+function repositoryHeadSelectorKey(
+  repository: string | undefined,
+  headSelector: string | undefined,
+) {
+  if (!repository || !headSelector) {
+    return null;
+  }
+  return `${repository}::${headSelector}`;
 }
 
 function runGitSyncForFakeGh(cwd: string, args: readonly string[]): void {
@@ -377,6 +401,11 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       [...values],
     ]),
   );
+  const prListQueueByRepositoryHeadSelector = new Map(
+    Object.entries(scenario.prListSequenceByRepositoryHeadSelector ?? {}).map(
+      ([repositoryHeadSelector, values]) => [repositoryHeadSelector, [...values]],
+    ),
+  );
   const ghCalls: string[] = [];
 
   const execute: GitHubCliShape["execute"] = (input) => {
@@ -388,10 +417,24 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
     }
 
     if (args[0] === "pr" && args[1] === "list") {
+      const repositoryIndex = args.findIndex((value) => value === "--repo");
+      const repository =
+        repositoryIndex >= 0 && repositoryIndex < args.length - 1
+          ? args[repositoryIndex + 1]
+          : undefined;
       const headSelectorIndex = args.findIndex((value) => value === "--head");
       const headSelector =
         headSelectorIndex >= 0 && headSelectorIndex < args.length - 1
           ? args[headSelectorIndex + 1]
+          : undefined;
+      const repositoryHeadSelector = repositoryHeadSelectorKey(repository, headSelector);
+      const mappedRepositoryQueue =
+        repositoryHeadSelector !== null
+          ? prListQueueByRepositoryHeadSelector.get(repositoryHeadSelector)?.shift()
+          : undefined;
+      const mappedRepositoryStdout =
+        repositoryHeadSelector !== null
+          ? scenario.prListByRepositoryHeadSelector?.[repositoryHeadSelector]
           : undefined;
       const mappedQueue =
         typeof headSelector === "string"
@@ -401,7 +444,13 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         typeof headSelector === "string"
           ? scenario.prListByHeadSelector?.[headSelector]
           : undefined;
-      const stdout = (mappedQueue ?? mappedStdout ?? prListQueue.shift() ?? "[]") + "\n";
+      const stdout =
+        (mappedRepositoryQueue ??
+          mappedRepositoryStdout ??
+          mappedQueue ??
+          mappedStdout ??
+          prListQueue.shift() ??
+          "[]") + "\n";
       return Effect.succeed(fakeGhOutput(stdout));
     }
 
@@ -501,6 +550,15 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
           ),
         );
       }
+      if (args.includes("nameWithOwner")) {
+        return Effect.succeed(
+          fakeGhOutput(
+            JSON.stringify({
+              nameWithOwner: scenario.repositoryNameWithOwner ?? "pingdotgg/codething-mvp",
+            }) + "\n",
+          ),
+        );
+      }
       return Effect.succeed(fakeGhOutput(`${scenario.defaultBranch ?? "main"}\n`));
     }
 
@@ -538,12 +596,37 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
               .filter((entry): entry is GitHubPullRequestSummary => entry !== null),
           ),
         ),
+      listPullRequests: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            ...(input.repository ? ["--repo", input.repository] : []),
+            "--head",
+            input.headSelector,
+            "--state",
+            input.state ?? "open",
+            "--limit",
+            String(input.limit ?? 1),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ],
+        }).pipe(
+          Effect.map((result) => JSON.parse(result.stdout) as unknown[]),
+          Effect.map((raw) =>
+            raw
+              .map((entry) => normalizeFakePullRequestSummary(entry))
+              .filter((entry): entry is GitHubPullRequestSummary => entry !== null),
+          ),
+        ),
       createPullRequest: (input) =>
         execute({
           cwd: input.cwd,
           args: [
             "pr",
             "create",
+            ...(input.repository ? ["--repo", input.repository] : []),
             "--base",
             input.baseBranch,
             "--head",
@@ -564,17 +647,38 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
             return value.length > 0 ? value : null;
           }),
         ),
+      getRepositoryNameWithOwner: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: ["repo", "view", "--json", "nameWithOwner"],
+        }).pipe(
+          Effect.map((result) => JSON.parse(result.stdout) as { nameWithOwner?: string | null }),
+          Effect.map((result) => result.nameWithOwner?.trim() || null),
+        ),
       getPullRequest: (input) =>
         execute({
           cwd: input.cwd,
           args: [
             "pr",
             "view",
+            ...(input.repository ? ["--repo", input.repository] : []),
             input.reference,
             "--json",
             "number,title,url,baseRefName,headRefName,state,mergedAt,isCrossRepository,headRepository,headRepositoryOwner",
           ],
-        }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
+        }).pipe(
+          Effect.map((result) => normalizeFakePullRequestSummary(JSON.parse(result.stdout))),
+          Effect.flatMap((result) =>
+            result
+              ? Effect.succeed(result)
+              : Effect.fail(
+                  new GitHubCliError({
+                    operation: "getPullRequest",
+                    detail: "Fake gh returned invalid pull request JSON.",
+                  }),
+                ),
+          ),
+        ),
       getRepositoryCloneUrls: (input) =>
         execute({
           cwd: input.cwd,
@@ -1055,10 +1159,93 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           state: "open",
         });
         expect(ghCalls).toContain(
-          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          "pr list --repo jasonLaster/codething-mvp --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
         );
       }),
     20_000,
+  );
+
+  it.effect(
+    "status prefers the tracking repository PR when gh defaults to a different repository",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const originDir = yield* createBareRemote();
+        const upstreamDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", originDir]);
+        yield* runGit(repoDir, ["remote", "add", "upstream", upstreamDir]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.origin.url",
+          "git@github.com:NarukeAlpha/t3code-ide.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.origin.pushurl", originDir]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.upstream.url",
+          "git@github.com:pingdotgg/t3code.git",
+        ]);
+        yield* runGit(repoDir, ["config", "remote.upstream.pushurl", upstreamDir]);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/upstream-sync-ide-expansion"]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/upstream-sync-ide-expansion"]);
+
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            repositoryNameWithOwner: "pingdotgg/t3code",
+            prListByRepositoryHeadSelector: {
+              "NarukeAlpha/t3code-ide::feature/upstream-sync-ide-expansion": JSON.stringify([
+                {
+                  number: 1,
+                  title: "Fork PR",
+                  url: "https://github.com/NarukeAlpha/t3code-ide/pull/1",
+                  baseRefName: "main",
+                  headRefName: "feature/upstream-sync-ide-expansion",
+                  state: "OPEN",
+                  updatedAt: "2026-04-17T05:23:10.000Z",
+                },
+              ]),
+              "pingdotgg/t3code::feature/upstream-sync-ide-expansion": JSON.stringify([
+                {
+                  number: 2101,
+                  title: "Upstream PR",
+                  url: "https://github.com/pingdotgg/t3code/pull/2101",
+                  baseRefName: "main",
+                  headRefName: "feature/upstream-sync-ide-expansion",
+                  state: "OPEN",
+                  updatedAt: "2026-04-17T05:24:00.000Z",
+                },
+              ]),
+            },
+          },
+        });
+
+        const status = yield* manager.status({ cwd: repoDir });
+
+        expect(status.pr).toEqual({
+          number: 1,
+          title: "Fork PR",
+          url: "https://github.com/NarukeAlpha/t3code-ide/pull/1",
+          baseRef: "main",
+          headRef: "feature/upstream-sync-ide-expansion",
+          state: "open",
+        });
+        expect(
+          ghCalls.some((call) =>
+            call.includes(
+              "pr list --repo NarukeAlpha/t3code-ide --head feature/upstream-sync-ide-expansion --state all --limit 20",
+            ),
+          ),
+        ).toBe(true);
+        expect(
+          ghCalls.some((call) =>
+            call.includes(
+              "pr list --repo pingdotgg/t3code --head feature/upstream-sync-ide-expansion --state all --limit 20",
+            ),
+          ),
+        ).toBe(true);
+      }),
+    12_000,
   );
 
   it.effect(
@@ -1900,7 +2087,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(result.pr.number).toBe(142);
         expect(
           ghCalls.some((call) =>
-            call.includes("pr list --head octocat:statemachine --state open --limit 1"),
+            call.includes(
+              "pr list --repo octocat/codething-mvp --head octocat:statemachine --state all --limit 20",
+            ),
           ),
         ).toBe(true);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
@@ -2062,7 +2251,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(result.pr.number).toBe(142);
 
         const ownerSelectorCallIndex = ghCalls.findIndex((call) =>
-          call.includes("pr list --head octocat:statemachine --state open --limit 1"),
+          call.includes(
+            "pr list --repo octocat/codething-mvp --head octocat:statemachine --state all --limit 20",
+          ),
         );
         expect(ownerSelectorCallIndex).toBeGreaterThanOrEqual(0);
         expect(ghCalls.some((call) => call.startsWith("pr create "))).toBe(false);
@@ -2071,7 +2262,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
   );
 
   it.effect(
-    "stops probing head selectors after finding an existing PR",
+    "queries explicit repositories and still resolves the preferred cross-repo PR",
     () =>
       Effect.gen(function* () {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -2123,11 +2314,12 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         expect(result.pr.status).toBe("opened_existing");
         expect(result.pr.number).toBe(142);
 
-        const openLookupCalls = ghCalls.filter((call) => call.includes("--state open --limit 1"));
-        expect(openLookupCalls).toHaveLength(1);
-        expect(openLookupCalls[0]).toContain(
-          "pr list --head octocat:statemachine --state open --limit 1",
+        const matchingCalls = ghCalls.filter((call) =>
+          call.includes(
+            "pr list --repo octocat/codething-mvp --head octocat:statemachine --state all --limit 20",
+          ),
         );
+        expect(matchingCalls.length).toBeGreaterThanOrEqual(1);
       }),
     12_000,
   );
@@ -2270,8 +2462,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager, ghCalls } = yield* makeManager({
         ghScenario: {
-          prListSequenceByHeadSelector: {
-            "octocat:statemachine": [
+          prListSequenceByRepositoryHeadSelector: {
+            "octocat/codething-mvp::octocat:statemachine": [
               JSON.stringify([]),
               JSON.stringify([
                 {
@@ -2291,8 +2483,11 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 },
               ]),
             ],
-            "fork-seed:statemachine": [JSON.stringify([])],
-            statemachine: [JSON.stringify([])],
+            "octocat/codething-mvp::fork-seed:statemachine": [JSON.stringify([])],
+            "octocat/codething-mvp::statemachine": [JSON.stringify([])],
+            "pingdotgg/codething-mvp::octocat:statemachine": [JSON.stringify([])],
+            "pingdotgg/codething-mvp::fork-seed:statemachine": [JSON.stringify([])],
+            "pingdotgg/codething-mvp::statemachine": [JSON.stringify([])],
           },
         },
       });

@@ -17,10 +17,11 @@ import {
   ChevronDownIcon,
   CloudUploadIcon,
   ExternalLinkIcon,
+  GitBranchIcon,
   GitCommitIcon,
+  GlobeIcon,
   InfoIcon,
   LockIcon,
-  GlobeIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { GitHubIcon, GitLabIcon } from "~/components/Icons";
@@ -56,14 +57,6 @@ import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import {
-  Select,
-  SelectGroup,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
 import { Textarea } from "~/components/ui/textarea";
 import { stackedThreadToast, toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { openInPreferredEditor } from "~/editorPreferences";
@@ -84,6 +77,7 @@ import { readLocalApi } from "~/localApi";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
 import { useStore } from "~/store";
 import { createThreadSelectorByRef } from "~/storeSelectors";
+import { GitRepositoryWorkspaceDialog } from "./GitRepositoryWorkspaceDialog";
 
 interface GitActionsControlProps {
   gitCwd: string | null;
@@ -282,6 +276,7 @@ export default function GitActionsControl({
   const setThreadBranch = useStore((store) => store.setThreadBranch);
   const queryClient = useQueryClient();
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [isRepositoryDialogOpen, setIsRepositoryDialogOpen] = useState(false);
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
   const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
   const [isEditingFiles, setIsEditingFiles] = useState(false);
@@ -1119,6 +1114,11 @@ export default function GitActionsControl({
                   </MenuItem>
                 );
               })}
+              <div className="my-1 h-px bg-border/80" />
+              <MenuItem onClick={() => setIsRepositoryDialogOpen(true)}>
+                <GitBranchIcon />
+                Repository...
+              </MenuItem>
               {canPublishRepository ? (
                 <MenuItem
                   disabled={isGitActionRunning}
@@ -1321,6 +1321,13 @@ export default function GitActionsControl({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
+
+      <GitRepositoryWorkspaceDialog
+        open={isRepositoryDialogOpen}
+        onOpenChange={setIsRepositoryDialogOpen}
+        environmentId={activeEnvironmentId}
+        cwd={gitCwd}
+      />
 
       <Dialog
         open={isPublishDialogOpen}
