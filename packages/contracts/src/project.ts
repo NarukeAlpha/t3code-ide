@@ -53,3 +53,43 @@ export class ProjectWriteFileError extends Schema.TaggedErrorClass<ProjectWriteF
     cause: Schema.optional(Schema.Defect),
   },
 ) {}
+
+export const DetectedProjectScriptSource = Schema.Literals([
+  "package_json",
+  "zig",
+  "gradle",
+  "go",
+  "rust",
+  "dotnet",
+]);
+export type DetectedProjectScriptSource = typeof DetectedProjectScriptSource.Type;
+
+export const DetectedProjectScript = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  source: DetectedProjectScriptSource,
+  displayName: TrimmedNonEmptyString,
+  badgeLabel: TrimmedNonEmptyString,
+  detail: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+  originPath: TrimmedNonEmptyString,
+});
+export type DetectedProjectScript = typeof DetectedProjectScript.Type;
+
+export const ListDetectedProjectScriptsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ListDetectedProjectScriptsInput = typeof ListDetectedProjectScriptsInput.Type;
+
+export const ListDetectedProjectScriptsResult = Schema.Struct({
+  scripts: Schema.Array(DetectedProjectScript),
+  warnings: Schema.Array(TrimmedNonEmptyString),
+});
+export type ListDetectedProjectScriptsResult = typeof ListDetectedProjectScriptsResult.Type;
+
+export class ProjectDetectedScriptsError extends Schema.TaggedErrorClass<ProjectDetectedScriptsError>()(
+  "ProjectDetectedScriptsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
