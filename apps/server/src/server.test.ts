@@ -123,6 +123,7 @@ import {
 } from "./sourceControl/SourceControlRepositoryService.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { DatabaseManager, type DatabaseManagerShape } from "./database/Services/DatabaseManager.ts";
 
 const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
@@ -346,6 +347,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    databaseManager?: Partial<DatabaseManagerShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -615,6 +617,11 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
+      Layer.provide(
+        Layer.mock(DatabaseManager)({
+          ...options?.layers?.databaseManager,
+        }),
+      ),
     );
 
     const appLayer = servedRoutesLayer.pipe(
@@ -851,7 +858,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const path = yield* Path.Path;
       const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
-      yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
+      yield* fileSystem.writeFileString(indexPath, '<html lang="en">router-static-ok</html>');
 
       yield* buildAppUnderTest({ config: { staticDir } });
 

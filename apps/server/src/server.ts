@@ -72,7 +72,12 @@ import {
 } from "./auth/http.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
+import { DatabaseManagerLive } from "./database/Layers/DatabaseManager.ts";
+import { ProjectDatabaseConnectionRepositoryLive } from "./database/Layers/ProjectDatabaseConnectionRepository.ts";
+import { ProjectDatabaseConnectionSecretsLive } from "./database/Layers/ProjectDatabaseConnectionSecrets.ts";
+import { ProjectDatabaseConnectionSharedSecretsLive } from "./database/Layers/ProjectDatabaseConnectionSharedSecrets.ts";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -231,6 +236,29 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
+const DatabaseProjectionSnapshotQueryLayerLive = OrchestrationProjectionSnapshotQueryLive.pipe(
+  Layer.provide(PersistenceLayerLive),
+  Layer.provideMerge(RepositoryIdentityResolverLive),
+);
+
+const ProjectDatabaseConnectionRepositoryLayerLive = ProjectDatabaseConnectionRepositoryLive.pipe(
+  Layer.provide(PersistenceLayerLive),
+);
+
+const ProjectDatabaseConnectionSecretsLayerLive = ProjectDatabaseConnectionSecretsLive.pipe(
+  Layer.provide(ServerSecretStoreLive),
+);
+
+const ProjectDatabaseConnectionSharedSecretsLayerLive =
+  ProjectDatabaseConnectionSharedSecretsLive.pipe(Layer.provide(ServerSecretStoreLive));
+
+const DatabaseLayerLive = DatabaseManagerLive.pipe(
+  Layer.provideMerge(ProjectDatabaseConnectionRepositoryLayerLive),
+  Layer.provideMerge(ProjectDatabaseConnectionSecretsLayerLive),
+  Layer.provideMerge(ProjectDatabaseConnectionSharedSecretsLayerLive),
+  Layer.provideMerge(DatabaseProjectionSnapshotQueryLayerLive),
+);
+
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -265,6 +293,7 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
+  Layer.provideMerge(DatabaseLayerLive),
 );
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(

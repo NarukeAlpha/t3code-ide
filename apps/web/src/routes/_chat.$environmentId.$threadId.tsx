@@ -1,8 +1,10 @@
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { scopeProjectRef } from "@t3tools/client-runtime";
+import { Suspense, lazy, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
+import { DatabasePanel } from "../components/database/DatabasePanel";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import {
   DiffPanelHeaderSkeleton,
@@ -19,16 +21,19 @@ import {
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../store";
-import { createThreadSelectorByRef } from "../storeSelectors";
+import { createProjectSelectorByRef, createThreadSelectorByRef } from "../storeSelectors";
 import { resolveThreadRouteRef, buildThreadRouteParams } from "../threadRoutes";
 import { RightPanelSheet } from "../components/RightPanelSheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
+const DATABASE_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_database_sidebar_width";
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(24rem,34vw,36rem)";
 const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 22 * 16;
 const DIFF_INLINE_SIDEBAR_MAX_WIDTH = 36 * 16;
+const DATABASE_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
+const DATABASE_INLINE_SIDEBAR_MIN_WIDTH = 22 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 
 const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
@@ -49,22 +54,26 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
   );
 };
 
-const DiffPanelInlineSidebar = (props: {
-  diffOpen: boolean;
-  onCloseDiff: () => void;
-  onOpenDiff: () => void;
-  renderDiffContent: boolean;
+const RightPanelInlineSidebar = (props: {
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  defaultWidth: string;
+  minWidth: number;
+  maxWidth?: number;
+  storageKey: string;
+  children: ReactNode;
 }) => {
-  const { diffOpen, onCloseDiff, onOpenDiff, renderDiffContent } = props;
+  const { open, onOpen, onClose, defaultWidth, minWidth, maxWidth, storageKey, children } = props;
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
-        onOpenDiff();
+        onOpen();
         return;
       }
-      onCloseDiff();
+      onClose();
     },
-    [onCloseDiff, onOpenDiff],
+    [onClose, onOpen],
   );
   const shouldAcceptInlineSidebarWidth = useCallback(
     ({ nextWidth, wrapper }: { nextWidth: number; wrapper: HTMLElement }) => {
@@ -115,23 +124,23 @@ const DiffPanelInlineSidebar = (props: {
   return (
     <SidebarProvider
       defaultOpen={false}
-      open={diffOpen}
+      open={open}
       onOpenChange={onOpenChange}
       className="w-auto min-h-0 flex-none bg-transparent"
-      style={{ "--sidebar-width": DIFF_INLINE_DEFAULT_WIDTH } as React.CSSProperties}
+      style={{ "--sidebar-width": defaultWidth } as React.CSSProperties}
     >
       <Sidebar
         side="right"
         collapsible="offcanvas"
         className="border-l border-border bg-card text-foreground"
         resizable={{
-          maxWidth: DIFF_INLINE_SIDEBAR_MAX_WIDTH,
-          minWidth: DIFF_INLINE_SIDEBAR_MIN_WIDTH,
+          ...(maxWidth === undefined ? {} : { maxWidth }),
+          minWidth,
           shouldAcceptWidth: shouldAcceptInlineSidebarWidth,
-          storageKey: DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
+          storageKey,
         }}
       >
-        {renderDiffContent ? <LazyDiffPanel mode="sidebar" /> : null}
+        {children}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
@@ -148,6 +157,16 @@ function ChatThreadRouteView() {
     (store) => selectEnvironmentState(store, threadRef?.environmentId ?? null).bootstrapComplete,
   );
   const serverThread = useStore(useMemo(() => createThreadSelectorByRef(threadRef), [threadRef]));
+  const projectRef = useMemo(
+    () =>
+      threadRef && serverThread
+        ? scopeProjectRef(threadRef.environmentId, serverThread.projectId)
+        : null,
+    [serverThread, threadRef],
+  );
+  const activeProject = useStore(
+    useMemo(() => createProjectSelectorByRef(projectRef), [projectRef]),
+  );
   const threadExists = useStore((store) => selectThreadExistsByRef(store, threadRef));
   const environmentHasServerThreads = useStore(
     (store) => selectEnvironmentState(store, threadRef?.environmentId ?? null).threadIds.length > 0,
@@ -168,7 +187,8 @@ function ChatThreadRouteView() {
   const serverThreadStarted = threadHasStarted(serverThread);
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
   const diffOpen = search.diff === "1";
-  const shouldUseDiffSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const [databaseOpen, setDatabaseOpen] = useState(false);
+  const shouldUseRightPanelSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
   const currentThreadKey = threadRef ? `${threadRef.environmentId}:${threadRef.threadId}` : null;
   const [diffPanelMountState, setDiffPanelMountState] = useState(() => ({
     threadKey: currentThreadKey,
@@ -189,6 +209,9 @@ function ChatThreadRouteView() {
       };
     });
   }, [currentThreadKey]);
+  useEffect(() => {
+    setDatabaseOpen(false);
+  }, [currentThreadKey]);
   const closeDiff = useCallback(() => {
     if (!threadRef) {
       return;
@@ -203,6 +226,7 @@ function ChatThreadRouteView() {
     if (!threadRef) {
       return;
     }
+    setDatabaseOpen(false);
     markDiffOpened();
     void navigate({
       to: "/$environmentId/$threadId",
@@ -213,6 +237,22 @@ function ChatThreadRouteView() {
       },
     });
   }, [markDiffOpened, navigate, threadRef]);
+  const closeDatabase = useCallback(() => {
+    setDatabaseOpen(false);
+  }, []);
+  const openDatabase = useCallback(() => {
+    if (diffOpen) {
+      closeDiff();
+    }
+    setDatabaseOpen(true);
+  }, [closeDiff, diffOpen]);
+  const toggleDatabase = useCallback(() => {
+    if (databaseOpen) {
+      closeDatabase();
+      return;
+    }
+    openDatabase();
+  }, [closeDatabase, databaseOpen, openDatabase]);
 
   useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
@@ -236,8 +276,9 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
+  const activeRightPanel = databaseOpen ? "database" : diffOpen ? "diff" : null;
 
-  if (!shouldUseDiffSheet) {
+  if (!shouldUseRightPanelSheet) {
     return (
       <>
         <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
@@ -245,16 +286,45 @@ function ChatThreadRouteView() {
             environmentId={threadRef.environmentId}
             threadId={threadRef.threadId}
             onDiffPanelOpen={markDiffOpened}
-            reserveTitleBarControlInset={!diffOpen}
+            databaseOpen={databaseOpen}
+            onToggleDatabase={toggleDatabase}
+            reserveTitleBarControlInset={activeRightPanel === null}
             routeKind="server"
           />
         </SidebarInset>
-        <DiffPanelInlineSidebar
-          diffOpen={diffOpen}
-          onCloseDiff={closeDiff}
-          onOpenDiff={openDiff}
-          renderDiffContent={shouldRenderDiffContent}
-        />
+        <RightPanelInlineSidebar
+          open={activeRightPanel !== null}
+          onOpen={openDiff}
+          onClose={activeRightPanel === "database" ? closeDatabase : closeDiff}
+          defaultWidth={
+            activeRightPanel === "database"
+              ? DATABASE_INLINE_DEFAULT_WIDTH
+              : DIFF_INLINE_DEFAULT_WIDTH
+          }
+          minWidth={
+            activeRightPanel === "database"
+              ? DATABASE_INLINE_SIDEBAR_MIN_WIDTH
+              : DIFF_INLINE_SIDEBAR_MIN_WIDTH
+          }
+          {...(activeRightPanel === "database" ? {} : { maxWidth: DIFF_INLINE_SIDEBAR_MAX_WIDTH })}
+          storageKey={
+            activeRightPanel === "database"
+              ? DATABASE_INLINE_SIDEBAR_WIDTH_STORAGE_KEY
+              : DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY
+          }
+        >
+          {activeRightPanel === "database" && activeProject ? (
+            <DatabasePanel
+              environmentId={threadRef.environmentId}
+              projectId={activeProject.id}
+              projectName={activeProject.name}
+              mode="sidebar"
+              onClose={closeDatabase}
+            />
+          ) : activeRightPanel === "diff" && shouldRenderDiffContent ? (
+            <LazyDiffPanel mode="sidebar" />
+          ) : null}
+        </RightPanelInlineSidebar>
       </>
     );
   }
@@ -266,11 +336,26 @@ function ChatThreadRouteView() {
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
           onDiffPanelOpen={markDiffOpened}
+          databaseOpen={databaseOpen}
+          onToggleDatabase={toggleDatabase}
           routeKind="server"
         />
       </SidebarInset>
-      <RightPanelSheet open={diffOpen} onClose={closeDiff}>
-        {shouldRenderDiffContent ? <LazyDiffPanel mode="sheet" /> : null}
+      <RightPanelSheet
+        open={activeRightPanel !== null}
+        onClose={activeRightPanel === "database" ? closeDatabase : closeDiff}
+      >
+        {activeRightPanel === "database" && activeProject ? (
+          <DatabasePanel
+            environmentId={threadRef.environmentId}
+            projectId={activeProject.id}
+            projectName={activeProject.name}
+            mode="sheet"
+            onClose={closeDatabase}
+          />
+        ) : activeRightPanel === "diff" && shouldRenderDiffContent ? (
+          <LazyDiffPanel mode="sheet" />
+        ) : null}
       </RightPanelSheet>
     </>
   );
