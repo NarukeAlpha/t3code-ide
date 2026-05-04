@@ -1,22 +1,22 @@
 import type {
-  GitCheckoutInput,
-  GitCheckoutResult,
-  GitCreateBranchInput,
+  VcsSwitchRefInput,
+  VcsSwitchRefResult,
+  VcsCreateRefInput,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitInitInput,
-  GitListBranchesInput,
-  GitListBranchesResult,
-  GitPullInput,
-  GitPullResult,
-  GitRemoveWorktreeInput,
+  VcsCreateWorktreeInput,
+  VcsCreateWorktreeResult,
+  VcsInitInput,
+  VcsListRefsInput,
+  VcsListRefsResult,
+  VcsPullInput,
+  VcsPullResult,
+  VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
-  GitStatusInput,
-  GitStatusResult,
-  GitCreateBranchResult,
+  VcsStatusInput,
+  VcsStatusResult,
+  VcsCreateRefResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
 import type {
@@ -47,6 +47,7 @@ import type {
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project.ts";
+import type { ProviderInstanceId } from "./providerInstance.ts";
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
@@ -76,6 +77,15 @@ import type {
 import type { EnvironmentId } from "./baseSchemas.ts";
 import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
+import type {
+  SourceControlCloneRepositoryInput,
+  SourceControlCloneRepositoryResult,
+  SourceControlDiscoveryResult,
+  SourceControlPublishRepositoryInput,
+  SourceControlPublishRepositoryResult,
+  SourceControlRepositoryInfo,
+  SourceControlRepositoryLookupInput,
+} from "./sourceControl.ts";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -237,10 +247,18 @@ export interface LocalApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
-    refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    /**
+     * Refresh provider snapshots. When `input.instanceId` is supplied only that
+     * configured instance is probed; otherwise every configured instance is
+     * refreshed (legacy untargeted refresh).
+     */
+    refreshProviders: (input?: {
+      readonly instanceId?: ProviderInstanceId;
+    }) => Promise<ServerProviderUpdatedPayload>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
+    discoverSourceControl: () => Promise<SourceControlDiscoveryResult>;
   };
 }
 
@@ -249,7 +267,7 @@ export interface LocalApi {
  *
  * These operations must always be routed with explicit environment context.
  * They represent remote stateful capabilities such as orchestration, terminal,
- * project, and git operations. In multi-environment mode, each environment gets
+ * project, VCS, and provider operations. In multi-environment mode, each environment gets
  * its own instance of this surface, and callers should resolve it by
  * `environmentId` rather than reaching through the local desktop bridge.
  */
@@ -292,26 +310,39 @@ export interface EnvironmentApi {
     previewTable: (input: DatabasePreviewTableInput) => Promise<DatabasePreviewTableResult>;
     executeQuery: (input: DatabaseExecuteQueryInput) => Promise<DatabaseExecuteQueryResult>;
   };
-  git: {
-    listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
-    createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
-    removeWorktree: (input: GitRemoveWorktreeInput) => Promise<void>;
-    createBranch: (input: GitCreateBranchInput) => Promise<GitCreateBranchResult>;
-    checkout: (input: GitCheckoutInput) => Promise<GitCheckoutResult>;
-    init: (input: GitInitInput) => Promise<void>;
-    resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
-    preparePullRequestThread: (
-      input: GitPreparePullRequestThreadInput,
-    ) => Promise<GitPreparePullRequestThreadResult>;
-    pull: (input: GitPullInput) => Promise<GitPullResult>;
-    refreshStatus: (input: GitStatusInput) => Promise<GitStatusResult>;
+  sourceControl: {
+    lookupRepository: (
+      input: SourceControlRepositoryLookupInput,
+    ) => Promise<SourceControlRepositoryInfo>;
+    cloneRepository: (
+      input: SourceControlCloneRepositoryInput,
+    ) => Promise<SourceControlCloneRepositoryResult>;
+    publishRepository: (
+      input: SourceControlPublishRepositoryInput,
+    ) => Promise<SourceControlPublishRepositoryResult>;
+  };
+  vcs: {
+    listRefs: (input: VcsListRefsInput) => Promise<VcsListRefsResult>;
+    createWorktree: (input: VcsCreateWorktreeInput) => Promise<VcsCreateWorktreeResult>;
+    removeWorktree: (input: VcsRemoveWorktreeInput) => Promise<void>;
+    createRef: (input: VcsCreateRefInput) => Promise<VcsCreateRefResult>;
+    switchRef: (input: VcsSwitchRefInput) => Promise<VcsSwitchRefResult>;
+    init: (input: VcsInitInput) => Promise<void>;
+    pull: (input: VcsPullInput) => Promise<VcsPullResult>;
+    refreshStatus: (input: VcsStatusInput) => Promise<VcsStatusResult>;
     onStatus: (
-      input: GitStatusInput,
-      callback: (status: GitStatusResult) => void,
+      input: VcsStatusInput,
+      callback: (status: VcsStatusResult) => void,
       options?: {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  git: {
+    resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
+    preparePullRequestThread: (
+      input: GitPreparePullRequestThreadInput,
+    ) => Promise<GitPreparePullRequestThreadResult>;
   };
   orchestration: {
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;

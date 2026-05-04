@@ -13,7 +13,11 @@ import {
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
 import { finalizePromotedDraftThreadByRef, useComposerDraftStore } from "../composerDraftStore";
-import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
+import {
+  type DiffRouteSearch,
+  parseDiffRouteSearch,
+  stripDiffSearchParams,
+} from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY } from "../rightPanelLayout";
 import { selectEnvironmentState, selectThreadExistsByRef, useStore } from "../store";
@@ -25,8 +29,10 @@ import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/component
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_diff_sidebar_width";
 const DATABASE_INLINE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_database_sidebar_width";
-const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
-const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 26 * 16;
+const DIFF_INLINE_DEFAULT_WIDTH = "clamp(24rem,34vw,36rem)";
+const DIFF_INLINE_SIDEBAR_MIN_WIDTH = 22 * 16;
+const DIFF_INLINE_SIDEBAR_MAX_WIDTH = 36 * 16;
+const DATABASE_INLINE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
 const DATABASE_INLINE_SIDEBAR_MIN_WIDTH = 22 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 
@@ -50,20 +56,24 @@ const LazyDiffPanel = (props: { mode: DiffPanelMode }) => {
 
 const RightPanelInlineSidebar = (props: {
   open: boolean;
+  onOpen: () => void;
   onClose: () => void;
   defaultWidth: string;
   minWidth: number;
+  maxWidth?: number;
   storageKey: string;
   children: ReactNode;
 }) => {
-  const { open, onClose, defaultWidth, minWidth, storageKey, children } = props;
+  const { open, onOpen, onClose, defaultWidth, minWidth, maxWidth, storageKey, children } = props;
   const onOpenChange = useCallback(
     (open: boolean) => {
-      if (!open) {
-        onClose();
+      if (open) {
+        onOpen();
+        return;
       }
+      onClose();
     },
-    [onClose],
+    [onClose, onOpen],
   );
   const shouldAcceptInlineSidebarWidth = useCallback(
     ({ nextWidth, wrapper }: { nextWidth: number; wrapper: HTMLElement }) => {
@@ -124,6 +134,7 @@ const RightPanelInlineSidebar = (props: {
         collapsible="offcanvas"
         className="border-l border-border bg-card text-foreground"
         resizable={{
+          ...(maxWidth === undefined ? {} : { maxWidth }),
           minWidth,
           shouldAcceptWidth: shouldAcceptInlineSidebarWidth,
           storageKey,
@@ -211,6 +222,21 @@ function ChatThreadRouteView() {
       search: { diff: undefined },
     });
   }, [navigate, threadRef]);
+  const openDiff = useCallback(() => {
+    if (!threadRef) {
+      return;
+    }
+    setDatabaseOpen(false);
+    markDiffOpened();
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(threadRef),
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return { ...rest, diff: "1" };
+      },
+    });
+  }, [markDiffOpened, navigate, threadRef]);
   const closeDatabase = useCallback(() => {
     setDatabaseOpen(false);
   }, []);
@@ -255,7 +281,7 @@ function ChatThreadRouteView() {
   if (!shouldUseRightPanelSheet) {
     return (
       <>
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
           <ChatView
             environmentId={threadRef.environmentId}
             threadId={threadRef.threadId}
@@ -268,13 +294,19 @@ function ChatThreadRouteView() {
         </SidebarInset>
         <RightPanelInlineSidebar
           open={activeRightPanel !== null}
+          onOpen={openDiff}
           onClose={activeRightPanel === "database" ? closeDatabase : closeDiff}
-          defaultWidth={DIFF_INLINE_DEFAULT_WIDTH}
+          defaultWidth={
+            activeRightPanel === "database"
+              ? DATABASE_INLINE_DEFAULT_WIDTH
+              : DIFF_INLINE_DEFAULT_WIDTH
+          }
           minWidth={
             activeRightPanel === "database"
               ? DATABASE_INLINE_SIDEBAR_MIN_WIDTH
               : DIFF_INLINE_SIDEBAR_MIN_WIDTH
           }
+          {...(activeRightPanel === "database" ? {} : { maxWidth: DIFF_INLINE_SIDEBAR_MAX_WIDTH })}
           storageKey={
             activeRightPanel === "database"
               ? DATABASE_INLINE_SIDEBAR_WIDTH_STORAGE_KEY
@@ -299,7 +331,7 @@ function ChatThreadRouteView() {
 
   return (
     <>
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
         <ChatView
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
