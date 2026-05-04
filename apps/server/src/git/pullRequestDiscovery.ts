@@ -1,9 +1,13 @@
-import { Effect } from "effect";
-import type { GitCommandError, GitHubCliError } from "@t3tools/contracts";
+import { DateTime, Effect, Option } from "effect";
+import type { GitCommandError } from "@t3tools/contracts";
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared/git";
 
-import type { GitCoreShape } from "./Services/GitCore.ts";
-import type { GitHubCliShape, GitHubPullRequestSummary } from "./Services/GitHubCli.ts";
+import type { GitVcsDriverShape } from "../vcs/GitVcsDriver.ts";
+import type {
+  GitHubCliError,
+  GitHubCliShape,
+  GitHubPullRequestSummary,
+} from "../sourceControl/GitHubCli.ts";
 import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
 
 const MAX_DISCOVERED_PULL_REQUESTS = 5;
@@ -104,6 +108,13 @@ function appendUnique(values: string[], next: string | null | undefined): void {
   values.push(trimmed);
 }
 
+function formatUpdatedAt(updatedAt: GitHubPullRequestSummary["updatedAt"]): string | null {
+  return Option.match(updatedAt ?? Option.none(), {
+    onNone: () => null,
+    onSome: (value) => DateTime.formatIso(value),
+  });
+}
+
 function matchesBranchHeadContext(
   pr: PullRequestHeadRemoteInfo & {
     headRefName: string;
@@ -184,7 +195,7 @@ function toDiscoveredPullRequest(
     baseRefName: summary.baseRefName,
     headRefName: summary.headRefName,
     state: summary.state ?? "open",
-    updatedAt: summary.updatedAt ?? null,
+    updatedAt: formatUpdatedAt(summary.updatedAt),
     ...(summary.isCrossRepository !== undefined
       ? { isCrossRepository: summary.isCrossRepository }
       : {}),
@@ -233,7 +244,7 @@ export function resolveBranchHeadContext(input: {
   cwd: string;
   branch: string;
   upstreamRef: string | null;
-  gitCore: GitCoreShape;
+  gitCore: GitVcsDriverShape;
   gitHubCli: GitHubCliShape;
 }): Effect.Effect<BranchHeadContext, GitCommandError | GitHubCliError> {
   const readConfigValueNullable = (key: string) =>
@@ -331,7 +342,7 @@ export function discoverPullRequestsForBranch(input: {
   cwd: string;
   branch: string;
   upstreamRef: string | null;
-  gitCore: GitCoreShape;
+  gitCore: GitVcsDriverShape;
   gitHubCli: GitHubCliShape;
   limit?: number;
 }): Effect.Effect<ReadonlyArray<DiscoveredPullRequest>, GitCommandError | GitHubCliError> {

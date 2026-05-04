@@ -24,11 +24,11 @@ import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@t3tools/shared
 
 import { GIT_LOG_GRAPH_FORMAT, parseGitLogGraphRows } from "../graphRows.ts";
 import { discoverPullRequestsForBranch } from "../pullRequestDiscovery.ts";
-import { GitCore } from "../Services/GitCore.ts";
-import { GitHubCli } from "../Services/GitHubCli.ts";
-import { GitManager } from "../Services/GitManager.ts";
+import { GitManager } from "../GitManager.ts";
 import { GitWorkspace, type GitWorkspaceShape } from "../Services/GitWorkspace.ts";
 import { RepositoryIdentityResolver } from "../../project/Services/RepositoryIdentityResolver.ts";
+import { GitHubCli } from "../../sourceControl/GitHubCli.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 
 const DEFAULT_GRAPH_LIMIT = 300;
 const PULL_REQUEST_PAGE_SIZE = 25;
@@ -604,7 +604,7 @@ function isGitHubCliUnauthenticated(detail: string): boolean {
 }
 
 export const makeGitWorkspace = Effect.gen(function* () {
-  const gitCore = yield* GitCore;
+  const gitCore = yield* GitVcsDriver;
   const gitManager = yield* GitManager;
   const gitHubCli = yield* GitHubCli;
   const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
@@ -657,16 +657,18 @@ export const makeGitWorkspace = Effect.gen(function* () {
       };
     }
 
-    if (localStatus.hostingProvider?.kind !== "github") {
+    if (localStatus.sourceControlProvider?.kind !== "github") {
       return {
         availability: {
           kind: "unsupported_host" as const,
           message:
-            localStatus.hostingProvider?.name ??
+            localStatus.sourceControlProvider?.name ??
             "This repository is not configured for GitHub workspace features.",
-          ...(localStatus.hostingProvider ? { hostingProvider: localStatus.hostingProvider } : {}),
+          ...(localStatus.sourceControlProvider
+            ? { hostingProvider: localStatus.sourceControlProvider }
+            : {}),
         },
-        hostingProvider: localStatus.hostingProvider ?? null,
+        hostingProvider: localStatus.sourceControlProvider ?? null,
       };
     }
 
@@ -685,9 +687,9 @@ export const makeGitWorkspace = Effect.gen(function* () {
           availability: {
             kind: "gh_unavailable" as const,
             message: "GitHub CLI is required for PR and workflow features.",
-            hostingProvider: localStatus.hostingProvider,
+            hostingProvider: localStatus.sourceControlProvider,
           },
-          hostingProvider: localStatus.hostingProvider,
+          hostingProvider: localStatus.sourceControlProvider,
         };
       }
       if (isGitHubCliUnauthenticated(detail)) {
@@ -695,24 +697,24 @@ export const makeGitWorkspace = Effect.gen(function* () {
           availability: {
             kind: "gh_unauthenticated" as const,
             message: "Authenticate GitHub CLI with `gh auth login` to use PR features.",
-            hostingProvider: localStatus.hostingProvider,
+            hostingProvider: localStatus.sourceControlProvider,
           },
-          hostingProvider: localStatus.hostingProvider,
+          hostingProvider: localStatus.sourceControlProvider,
         };
       }
       return {
         availability: {
           kind: "error" as const,
           message: detail,
-          hostingProvider: localStatus.hostingProvider,
+          hostingProvider: localStatus.sourceControlProvider,
         },
-        hostingProvider: localStatus.hostingProvider,
+        hostingProvider: localStatus.sourceControlProvider,
       };
     }
 
     return {
-      availability: buildAvailableAvailability(localStatus.hostingProvider),
-      hostingProvider: localStatus.hostingProvider,
+      availability: buildAvailableAvailability(localStatus.sourceControlProvider),
+      hostingProvider: localStatus.sourceControlProvider,
     };
   });
 
@@ -1151,7 +1153,7 @@ export const makeGitWorkspace = Effect.gen(function* () {
       }),
     );
     return Exit.isSuccess(refreshExit)
-      ? { attempted: true, succeeded: refreshExit.value.code === 0 }
+      ? { attempted: true, succeeded: refreshExit.value.exitCode === 0 }
       : { attempted: true, succeeded: false };
   });
 
@@ -1222,12 +1224,12 @@ export const makeGitWorkspace = Effect.gen(function* () {
       return Math.max(currentMax, rowMaxColumn);
     }, 0);
 
-    const branchList = yield* gitCore.listBranches({
+    const branchList = yield* gitCore.listRefs({
       cwd: input.cwd,
       limit: 500,
     });
     const localBranchMeta = new Map(
-      branchList.branches
+      branchList.refs
         .filter((branch) => !branch.isRemote)
         .map((branch) => [
           branch.name,
@@ -1319,7 +1321,7 @@ export const makeGitWorkspace = Effect.gen(function* () {
     }
 
     const topologyWorktrees: GitTopologyWorktree[] = [];
-    for (const branch of branchList.branches.filter((candidate) => !candidate.isRemote)) {
+    for (const branch of branchList.refs.filter((candidate) => !candidate.isRemote)) {
       if (!branch.worktreePath) {
         continue;
       }

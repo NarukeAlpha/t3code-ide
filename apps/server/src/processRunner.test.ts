@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runProcess } from "./processRunner.ts";
+import { isWindowsCommandNotFound, runProcess } from "./processRunner.ts";
 
 function createMockChildProcess() {
   const child = new EventEmitter() as EventEmitter & {
@@ -90,5 +90,23 @@ describe("runProcess", () => {
       ["-v"],
       expect.objectContaining({ shell: process.platform === "win32" }),
     );
+  });
+});
+
+describe("isWindowsCommandNotFound", () => {
+  it("matches the localized German cmd.exe error text", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+    try {
+      expect(
+        isWindowsCommandNotFound(
+          1,
+          "wird nicht als interner oder externer Befehl, betriebsfahiges Programm oder Batch-Datei erkannt",
+        ),
+      ).toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
   });
 });

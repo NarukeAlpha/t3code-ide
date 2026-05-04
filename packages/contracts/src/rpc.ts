@@ -11,30 +11,30 @@ import {
 } from "./filesystem.ts";
 import {
   GitActionProgressEvent,
-  GitCheckoutInput,
-  GitCheckoutResult,
+  VcsSwitchRefInput,
+  VcsSwitchRefResult,
   GitCommandError,
-  GitCreateBranchInput,
-  GitCreateBranchResult,
-  GitCreateWorktreeInput,
-  GitCreateWorktreeResult,
-  GitInitInput,
-  GitListBranchesInput,
-  GitListBranchesResult,
+  VcsCreateRefInput,
+  VcsCreateRefResult,
+  VcsCreateWorktreeInput,
+  VcsCreateWorktreeResult,
+  VcsInitInput,
+  VcsListRefsInput,
+  VcsListRefsResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
-  GitPullInput,
+  VcsPullInput,
   GitPullRequestRefInput,
-  GitPullResult,
   GitRecentGraphInput,
   GitRecentGraphResult,
-  GitRemoveWorktreeInput,
+  VcsPullResult,
+  VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitRunStackedActionInput,
-  GitStatusInput,
-  GitStatusResult,
-  GitStatusStreamEvent,
+  VcsStatusInput,
+  VcsStatusResult,
+  VcsStatusStreamEvent,
 } from "./git.ts";
 import {
   GitHubPullRequestCommentInput,
@@ -64,6 +64,7 @@ import {
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
 } from "./orchestration.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
@@ -92,6 +93,17 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
+import {
+  SourceControlCloneRepositoryInput,
+  SourceControlCloneRepositoryResult,
+  SourceControlDiscoveryResult,
+  SourceControlPublishRepositoryInput,
+  SourceControlPublishRepositoryResult,
+  SourceControlRepositoryError,
+  SourceControlRepositoryInfo,
+  SourceControlRepositoryLookupInput,
+} from "./sourceControl.ts";
+import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
   // Project registry methods
@@ -107,16 +119,18 @@ export const WS_METHODS = {
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
 
-  // Git methods
-  gitPull: "git.pull",
-  gitRefreshStatus: "git.refreshStatus",
+  // VCS methods
+  vcsPull: "vcs.pull",
+  vcsRefreshStatus: "vcs.refreshStatus",
+  vcsListRefs: "vcs.listRefs",
+  vcsCreateWorktree: "vcs.createWorktree",
+  vcsRemoveWorktree: "vcs.removeWorktree",
+  vcsCreateRef: "vcs.createRef",
+  vcsSwitchRef: "vcs.switchRef",
+  vcsInit: "vcs.init",
+
+  // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
-  gitListBranches: "git.listBranches",
-  gitCreateWorktree: "git.createWorktree",
-  gitRemoveWorktree: "git.removeWorktree",
-  gitCreateBranch: "git.createBranch",
-  gitCheckout: "git.checkout",
-  gitInit: "git.init",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
   gitGetRecentGraph: "git.getRecentGraph",
@@ -143,9 +157,15 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverDiscoverSourceControl: "server.discoverSourceControl",
+
+  // Source control methods
+  sourceControlLookupRepository: "sourceControl.lookupRepository",
+  sourceControlCloneRepository: "sourceControl.cloneRepository",
+  sourceControlPublishRepository: "sourceControl.publishRepository",
 
   // Streaming subscriptions
-  subscribeGitStatus: "subscribeGitStatus",
+  subscribeVcsStatus: "subscribeVcsStatus",
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
@@ -165,7 +185,15 @@ export const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
-  payload: Schema.Struct({}),
+  payload: Schema.Struct({
+    /**
+     * When supplied, only refresh this specific provider instance. When
+     * omitted, refresh all configured instances — the legacy `refresh()`
+     * behaviour retained for transports that still dispatch untargeted
+     * refreshes.
+     */
+    instanceId: Schema.optional(ProviderInstanceId),
+  }),
   success: ServerProviderUpdatedPayload,
 });
 
@@ -180,6 +208,35 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   success: ServerSettings,
   error: ServerSettingsError,
 });
+
+export const WsServerDiscoverSourceControlRpc = Rpc.make(WS_METHODS.serverDiscoverSourceControl, {
+  payload: Schema.Struct({}),
+  success: SourceControlDiscoveryResult,
+});
+
+export const WsSourceControlLookupRepositoryRpc = Rpc.make(
+  WS_METHODS.sourceControlLookupRepository,
+  {
+    payload: SourceControlRepositoryLookupInput,
+    success: SourceControlRepositoryInfo,
+    error: SourceControlRepositoryError,
+  },
+);
+
+export const WsSourceControlCloneRepositoryRpc = Rpc.make(WS_METHODS.sourceControlCloneRepository, {
+  payload: SourceControlCloneRepositoryInput,
+  success: SourceControlCloneRepositoryResult,
+  error: SourceControlRepositoryError,
+});
+
+export const WsSourceControlPublishRepositoryRpc = Rpc.make(
+  WS_METHODS.sourceControlPublishRepository,
+  {
+    payload: SourceControlPublishRepositoryInput,
+    success: SourceControlPublishRepositoryResult,
+    error: SourceControlRepositoryError,
+  },
+);
 
 export const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
@@ -204,22 +261,22 @@ export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: FilesystemBrowseError,
 });
 
-export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
-  payload: GitStatusInput,
-  success: GitStatusStreamEvent,
+export const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
+  payload: VcsStatusInput,
+  success: VcsStatusStreamEvent,
   error: GitManagerServiceError,
   stream: true,
 });
 
-export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
-  payload: GitPullInput,
-  success: GitPullResult,
+export const WsVcsPullRpc = Rpc.make(WS_METHODS.vcsPull, {
+  payload: VcsPullInput,
+  success: VcsPullResult,
   error: GitCommandError,
 });
 
-export const WsGitRefreshStatusRpc = Rpc.make(WS_METHODS.gitRefreshStatus, {
-  payload: GitStatusInput,
-  success: GitStatusResult,
+export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
+  payload: VcsStatusInput,
+  success: VcsStatusResult,
   error: GitManagerServiceError,
 });
 
@@ -242,38 +299,38 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
   error: GitManagerServiceError,
 });
 
-export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
-  payload: GitListBranchesInput,
-  success: GitListBranchesResult,
+export const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
+  payload: VcsListRefsInput,
+  success: VcsListRefsResult,
   error: GitCommandError,
 });
 
-export const WsGitCreateWorktreeRpc = Rpc.make(WS_METHODS.gitCreateWorktree, {
-  payload: GitCreateWorktreeInput,
-  success: GitCreateWorktreeResult,
+export const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
+  payload: VcsCreateWorktreeInput,
+  success: VcsCreateWorktreeResult,
   error: GitCommandError,
 });
 
-export const WsGitRemoveWorktreeRpc = Rpc.make(WS_METHODS.gitRemoveWorktree, {
-  payload: GitRemoveWorktreeInput,
+export const WsVcsRemoveWorktreeRpc = Rpc.make(WS_METHODS.vcsRemoveWorktree, {
+  payload: VcsRemoveWorktreeInput,
   error: GitCommandError,
 });
 
-export const WsGitCreateBranchRpc = Rpc.make(WS_METHODS.gitCreateBranch, {
-  payload: GitCreateBranchInput,
-  success: GitCreateBranchResult,
+export const WsVcsCreateRefRpc = Rpc.make(WS_METHODS.vcsCreateRef, {
+  payload: VcsCreateRefInput,
+  success: VcsCreateRefResult,
   error: GitCommandError,
 });
 
-export const WsGitCheckoutRpc = Rpc.make(WS_METHODS.gitCheckout, {
-  payload: GitCheckoutInput,
-  success: GitCheckoutResult,
+export const WsVcsSwitchRefRpc = Rpc.make(WS_METHODS.vcsSwitchRef, {
+  payload: VcsSwitchRefInput,
+  success: VcsSwitchRefResult,
   error: GitCommandError,
 });
 
-export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
-  payload: GitInitInput,
-  error: GitCommandError,
+export const WsVcsInitRpc = Rpc.make(WS_METHODS.vcsInit, {
+  payload: VcsInitInput,
+  error: VcsError,
 });
 
 export const WsGitGetRecentGraphRpc = Rpc.make(WS_METHODS.gitGetRecentGraph, {
@@ -431,22 +488,20 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpsertKeybindingRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerDiscoverSourceControlRpc,
+  WsSourceControlLookupRepositoryRpc,
+  WsSourceControlCloneRepositoryRpc,
+  WsSourceControlPublishRepositoryRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
-  WsSubscribeGitStatusRpc,
-  WsGitPullRpc,
-  WsGitRefreshStatusRpc,
+  WsSubscribeVcsStatusRpc,
+  WsVcsPullRpc,
+  WsVcsRefreshStatusRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
-  WsGitListBranchesRpc,
-  WsGitCreateWorktreeRpc,
-  WsGitRemoveWorktreeRpc,
-  WsGitCreateBranchRpc,
-  WsGitCheckoutRpc,
-  WsGitInitRpc,
   WsGitGetRecentGraphRpc,
   WsGitHubGetWorkspaceRpc,
   WsGitHubGetPullRequestInboxRpc,
@@ -454,6 +509,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitHubGetWorkflowOverviewRpc,
   WsGitHubAddPullRequestCommentRpc,
   WsGitHubSubmitPullRequestReviewRpc,
+  WsVcsListRefsRpc,
+  WsVcsCreateWorktreeRpc,
+  WsVcsRemoveWorktreeRpc,
+  WsVcsCreateRefRpc,
+  WsVcsSwitchRefRpc,
+  WsVcsInitRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalResizeRpc,
